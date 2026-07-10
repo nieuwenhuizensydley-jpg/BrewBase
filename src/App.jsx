@@ -54,6 +54,21 @@ const fmt = (n, sym="R") => `${sym}${Number(n||0).toFixed(2).replace(/\B(?=(\d{3
 const todayISO = () => new Date().toISOString().slice(0,10)
 const nowTime  = () => new Date().toTimeString().slice(0,5)
 
+function getReceiptSettings() {
+  return {
+    storeName:    localStorage.getItem("bb_receipt_name")    || "BrewBase Café",
+    tagline:      localStorage.getItem("bb_receipt_tagline") || "",
+    phone:        localStorage.getItem("bb_receipt_phone")   || "",
+    footer1:      localStorage.getItem("bb_receipt_footer1") || "Thank you for visiting!",
+    footer2:      localStorage.getItem("bb_receipt_footer2") || "See you again soon.",
+    showTipLine:  localStorage.getItem("bb_receipt_tipline")   !== "false",
+    showTotalLine:localStorage.getItem("bb_receipt_totalline") !== "false",
+  }
+}
+function getKitchenCats() {
+  try { return JSON.parse(localStorage.getItem("bb_kitchen_cats")||"[]") } catch { return [] }
+}
+
 // ── Context ───────────────────────────────────────────────────────────────────
 const BusinessCtx = createContext(null)
 const StaffCtx    = createContext(null)
@@ -636,6 +651,7 @@ const NAV_ITEMS = [
   {id:"customers", icon:"🎯", label:"Customers",     roles:["owner","manager"]},
   {id:"printer",   icon:"🖨️", label:"Printer",       roles:["owner","manager"]},
   {id:"franchise", icon:"🏢", label:"Franchise",     roles:["owner"]},
+  {id:"owner",     icon:"📱", label:"Owner View",    roles:["owner"]},
   {id:"settings",  icon:"⚙️", label:"Settings",      roles:["owner","manager"]},
 ]
 
@@ -675,15 +691,18 @@ function AppShell({business, staff, onLogout}) {
     customers: <CustomersModule/>,
     printer:   <PrinterModule/>,
     franchise: <FranchiseModule/>,
+    owner:     <OwnerDashboardModule/>,
     settings:  <SettingsModule onLogout={onLogout}/>,
   }
 
   const currentMod = allowedNav.find(n=>n.id===active)||allowedNav[0]
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [pinPromptDone, setPinPromptDone] = useState(false)
 
   return (
     <div style={{display:"flex",height:"100vh",background:C.bg,overflow:"hidden",fontFamily:"Inter,sans-serif"}}>
+      {!pinPromptDone&&<FirstLoginPinPrompt staff={staff} onDone={()=>setPinPromptDone(true)}/>}
       <style>{`
         @keyframes spin { to { transform:rotate(360deg) } }
         * { box-sizing:border-box; }
@@ -1117,10 +1136,17 @@ function POSModule() {
         await supabase.from("bb_open_tabs").delete().eq("id", activeTabId)
         await refreshTabs()
       }
+      // Auto-print kitchen ticket
+      if(BB_PRINTER.connected) {
+        try {
+          const kitchenBytes = buildKitchenBytes(order, order.items, getKitchenCats())
+          if(kitchenBytes) await BB_PRINTER.print(kitchenBytes)
+        } catch(e) { console.warn("Kitchen print failed:", e) }
+      }
       setLastOrder(order)
       setSaving(false)
       setDone(true)
-      setTimeout(() => { setDone(false); resetOrder() }, 3000)
+      setTimeout(() => { setDone(false); resetOrder() }, 4000)
     } catch (e) {
       setSaving(false)
       console.error(e)
@@ -1290,14 +1316,27 @@ function POSModule() {
         {cart.length > 0 && (
           <div style={{ borderTop: `1px solid ${C.border}`, padding: "14px 16px", background: "#fff" }}>
             {done ? (
-              <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <div style={{ textAlign: "center", padding: "16px 0" }}>
                 <div style={{ fontSize: 48 }}>✅</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: C.primary, marginTop: 8 }}>Sale Complete!</div>
                 {payMethod === "cash" && change > 0 && (
-                  <div style={{ marginTop: 12, background: C.greenPale, borderRadius: 10, padding: "12px 16px" }}>
+                  <div style={{ marginTop: 10, background: C.greenPale, borderRadius: 10, padding: "12px 16px" }}>
                     <div style={{ fontSize: 12, color: C.muted }}>Change due</div>
                     <div style={{ fontSize: 24, fontWeight: 800, color: C.green }}>{fmt(change)}</div>
                   </div>
+                )}
+                {lastOrder && BB_PRINTER.connected && (
+                  <button onClick={async()=>{
+                    try {
+                      const bytes = buildReceiptBytes(lastOrder, lastOrder.items, getReceiptSettings())
+                      await BB_PRINTER.print(bytes)
+                    } catch(e){ alert("Print failed: "+e.message) }
+                  }} style={{marginTop:12,width:"100%",padding:"12px",borderRadius:10,border:`1px solid ${C.border}`,background:C.faint,color:C.black,cursor:"pointer",fontSize:14,fontWeight:600,fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                    🖨 Print Receipt
+                  </button>
+                )}
+                {lastOrder && !BB_PRINTER.connected && (
+                  <div style={{marginTop:10,fontSize:12,color:C.muted}}>Connect printer in Printer settings to print receipts</div>
                 )}
               </div>
             ) : !checkoutOpen ? (
@@ -2772,37 +2811,8 @@ function SettingsModule({onLogout}) {
       )}
 
       {tab==="plan"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:16,maxWidth:640}}>
-          <div style={{background:C.primaryPale,border:`1px solid ${C.primary}30`,borderRadius:14,padding:20}}>
-            <div style={{fontSize:16,fontWeight:700,color:C.primary,marginBottom:4}}>Current Plan: {(business?.plan_id||"free").toUpperCase()}</div>
-            <div style={{fontSize:13,color:C.muted}}>
-              {business?.trial_ends_at&&new Date(business.trial_ends_at)>new Date()
-                ? `Free trial active — expires ${new Date(business.trial_ends_at).toLocaleDateString("en-ZA")}`
-                : "Manage your subscription below"}
-            </div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}}>
-            {[
-              {id:"free",name:"Free",price:"R0",period:"/month",features:["Basic POS","50 products","1 staff","Basic reports"]},
-              {id:"pro",name:"Pro",price:"R499",period:"/month",features:["Unlimited products","Unlimited staff","Full accounting","Loyalty programme","Advanced reports","Inventory","Priority support"],highlight:true},
-              {id:"enterprise",name:"Enterprise",price:"Custom",period:"",features:["Everything in Pro","Multiple branches","Franchise controls","Central management","Dedicated support"]},
-            ].map(plan=>(
-              <div key={plan.id} style={{background:plan.highlight?C.primary:C.surface,border:`2px solid ${plan.highlight?C.primary:C.border}`,borderRadius:14,padding:20,position:"relative"}}>
-                {plan.highlight&&<div style={{position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",background:C.amber,color:"#fff",fontSize:11,fontWeight:700,padding:"3px 12px",borderRadius:20,whiteSpace:"nowrap"}}>Most Popular</div>}
-                <div style={{fontSize:18,fontWeight:800,color:plan.highlight?"#fff":C.black,marginBottom:4}}>{plan.name}</div>
-                <div style={{fontSize:26,fontWeight:800,color:plan.highlight?"#fff":C.primary,marginBottom:12}}>{plan.price}<span style={{fontSize:13,fontWeight:400,opacity:0.7}}>{plan.period}</span></div>
-                {plan.features.map(f=>(
-                  <div key={f} style={{display:"flex",gap:8,marginBottom:6,fontSize:13,color:plan.highlight?"rgba(255,255,255,.85)":C.black,alignItems:"flex-start"}}>
-                    <span style={{color:plan.highlight?"#fff":C.primary,flexShrink:0}}>✓</span>{f}
-                  </div>
-                ))}
-                <Btn variant={plan.highlight?"secondary":"outline"} size="sm" style={{width:"100%",marginTop:14,background:plan.highlight?"rgba(255,255,255,.15)":undefined,color:plan.highlight?"#fff":undefined,borderColor:plan.highlight?"rgba(255,255,255,.3)":undefined}}>
-                  {business?.plan_id===plan.id?"Current Plan":plan.id==="enterprise"?"Contact Sales":"Upgrade"}
-                </Btn>
-              </div>
-            ))}
-          </div>
-          <div style={{fontSize:13,color:C.muted,textAlign:"center"}}>PayFast billing integration coming soon. Contact us at support@brewbase.co.za to upgrade early.</div>
+        <div style={{maxWidth:640}}>
+          <PayFastBillingSection business={business}/>
         </div>
       )}
     </div>
@@ -3922,6 +3932,374 @@ function FranchiseModule() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// OWNER REMOTE DASHBOARD (phone-friendly, works from anywhere)
+// ══════════════════════════════════════════════════════════════════════════════
+function OwnerDashboardModule() {
+  const business = useBusiness()
+  const {data:orders}    = useData("bb_orders")
+  const {data:expenses}  = useData("bb_expenses")
+  const {data:inventory} = useData("bb_inventory")
+  const {data:staffList} = useData("bb_staff")
+  const {data:shifts}    = useData("bb_shifts")
+  const [range,setRange] = useState("today")
+  const [refreshing,setRefreshing] = useState(false)
+
+  const today     = new Date().toISOString().slice(0,10)
+  const yesterday = new Date(Date.now()-86400000).toISOString().slice(0,10)
+  const week      = new Date(Date.now()-7*86400000).toISOString().slice(0,10)
+  const month     = today.slice(0,7)+"-01"
+
+  const rangeStart = range==="today"?today:range==="yesterday"?yesterday:range==="week"?week:month
+
+  const rangeOrders = orders.filter(o=>{
+    if(range==="yesterday") return o.date===yesterday&&o.status!=="refunded"
+    return o.date>=rangeStart&&o.date<=today&&o.status!=="refunded"
+  })
+
+  const todayO  = orders.filter(o=>o.date===today&&o.status!=="refunded")
+  const yestO   = orders.filter(o=>o.date===yesterday&&o.status!=="refunded")
+
+  const rev     = rangeOrders.reduce((s,o)=>s+parseFloat(o.total||0),0)
+  const tips    = rangeOrders.reduce((s,o)=>s+parseFloat(o.tip||0),0)
+  const avgOrder= rangeOrders.length>0?rev/rangeOrders.length:0
+  const todayRev= todayO.reduce((s,o)=>s+parseFloat(o.total||0),0)
+  const yestRev = yestO.reduce((s,o)=>s+parseFloat(o.total||0),0)
+  const revTrend= yestRev>0?Math.round(((todayRev-yestRev)/yestRev)*100):null
+
+  const monthExp= expenses.filter(e=>e.date>=month&&e.date<=today).reduce((s,e)=>s+parseFloat(e.amount||0),0)
+  const monthRev= orders.filter(o=>o.date>=month&&o.status!=="refunded").reduce((s,o)=>s+parseFloat(o.total||0),0)
+  const profit  = monthRev-monthExp
+
+  const lowStock= inventory.filter(i=>parseFloat(i.stock||0)<=parseFloat(i.reorder_level||0))
+  const openShift=shifts.find(s=>s.status==="open"&&s.date===today)
+
+  // Top items
+  const freq={}
+  rangeOrders.forEach(o=>{
+    const items=typeof o.items==="string"?JSON.parse(o.items||"[]"):o.items||[]
+    items.forEach(i=>{freq[i.name]=(freq[i.name]||0)+(i.qty||1)})
+  })
+  const topItems=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5)
+
+  // Staff performance today
+  const staffPerf = staffList.map(s=>{
+    const sO=todayO.filter(o=>o.staff_id===s.id||o.staff_name===s.name)
+    return {name:s.name,initials:s.initials||s.name?.slice(0,2).toUpperCase(),orders:sO.length,revenue:sO.reduce((t,o)=>t+parseFloat(o.total||0),0)}
+  }).filter(s=>s.orders>0).sort((a,b)=>b.revenue-a.revenue)
+
+  // Hourly today
+  const hours=[]
+  for(let h=6;h<=22;h++){
+    const hStr=String(h).padStart(2,"0")
+    const rev=todayO.filter(o=>String(o.time||"").startsWith(hStr)).reduce((s,o)=>s+parseFloat(o.total||0),0)
+    hours.push({h,label:`${h>12?h-12:h}${h>=12?"pm":"am"}`,rev})
+  }
+  const maxRev=Math.max(...hours.map(h=>h.rev),1)
+
+  const doRefresh = async () => {
+    setRefreshing(true)
+    await new Promise(r=>setTimeout(r,800))
+    setRefreshing(false)
+  }
+
+  return (
+    <div style={{padding:20,display:"flex",flexDirection:"column",gap:16,maxWidth:800,margin:"0 auto"}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:800,color:C.black,fontFamily:"Playfair Display,serif"}}>{business?.name}</div>
+          <div style={{fontSize:13,color:C.muted}}>Owner Dashboard · {new Date().toLocaleDateString("en-ZA",{weekday:"long",day:"numeric",month:"long"})} </div>
+        </div>
+        <button onClick={doRefresh} style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px",cursor:"pointer",fontSize:18,color:C.muted,transition:"transform 0.3s",transform:refreshing?"rotate(180deg)":"rotate(0deg)"}}>⟳</button>
+      </div>
+
+      {/* Shift status pill */}
+      <div style={{display:"flex",alignItems:"center",gap:10,background:openShift?C.greenPale:"#fff5f5",border:`1px solid ${openShift?C.primary+"40":C.red+"30"}`,borderRadius:10,padding:"10px 16px"}}>
+        <div style={{width:10,height:10,borderRadius:"50%",background:openShift?C.primary:C.red,flexShrink:0}}/>
+        <div style={{fontSize:14,fontWeight:600,color:openShift?C.primary:C.red}}>
+          {openShift?`Shift open since ${new Date(openShift.opened_at).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})} · ${todayO.length} orders`:"No shift open today"}
+        </div>
+        {!openShift&&<div style={{fontSize:12,color:C.muted,marginLeft:4}}>Go to Shifts to open one</div>}
+      </div>
+
+      {/* Range selector */}
+      <div style={{display:"flex",gap:6,background:C.faint,borderRadius:10,padding:4}}>
+        {[["today","Today"],["yesterday","Yesterday"],["week","7 Days"],["month","This Month"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setRange(id)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:"none",background:range===id?C.surface:"transparent",color:range===id?C.primary:C.muted,fontSize:13,fontWeight:range===id?700:400,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:range===id?"0 1px 4px rgba(0,0,0,.08)":"none",transition:"all 0.15s"}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Main KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <div style={{background:C.surface,borderRadius:14,padding:18,border:`1px solid ${C.border}`,gridColumn:"1/-1"}}>
+          <div style={{fontSize:11,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8}}>Revenue</div>
+          <div style={{fontSize:36,fontWeight:800,color:C.primary,fontFamily:"Playfair Display,serif",margin:"6px 0"}}>{fmt(rev)}</div>
+          {range==="today"&&revTrend!==null&&(
+            <div style={{fontSize:13,color:revTrend>=0?C.primary:C.red,fontWeight:600}}>
+              {revTrend>=0?"↑":"↓"} {Math.abs(revTrend)}% vs yesterday ({fmt(yestRev)})
+            </div>
+          )}
+          <div style={{fontSize:13,color:C.muted,marginTop:4}}>{rangeOrders.length} orders · avg {fmt(avgOrder)}</div>
+        </div>
+        <div style={{background:C.surface,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:11,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8}}>Tips</div>
+          <div style={{fontSize:24,fontWeight:800,color:C.amber,margin:"6px 0"}}>{fmt(tips)}</div>
+          <div style={{fontSize:12,color:C.muted}}>all staff</div>
+        </div>
+        <div style={{background:C.surface,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:11,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8}}>Month Profit</div>
+          <div style={{fontSize:24,fontWeight:800,color:profit>=0?C.primary:C.red,margin:"6px 0"}}>{fmt(profit)}</div>
+          <div style={{fontSize:12,color:C.muted}}>rev − expenses</div>
+        </div>
+      </div>
+
+      {/* Hourly chart (today only) */}
+      {range==="today"&&(
+        <div style={{background:C.surface,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.black,marginBottom:12}}>Sales by Hour</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:3,height:80}}>
+            {hours.map(h=>(
+              <div key={h.h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}}>
+                <div style={{width:"100%",background:h.rev>0?C.primary:C.faint,borderRadius:"2px 2px 0 0",height:`${Math.max(3,Math.round((h.rev/maxRev)*70))}px`,transition:"height 0.4s"}}/>
+                <span style={{fontSize:8,color:C.light,marginTop:3,whiteSpace:"nowrap"}}>{h.label}</span>
+              </div>
+            ))}
+          </div>
+          {todayO.length>0&&(
+            <div style={{fontSize:12,color:C.muted,marginTop:8}}>
+              Peak: {hours.reduce((a,b)=>b.rev>a.rev?b:a).label} · {fmt(hours.reduce((a,b)=>b.rev>a.rev?b:a).rev)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Top items + staff */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <div style={{background:C.surface,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.black,marginBottom:12}}>Top Items</div>
+          {topItems.length===0?<div style={{fontSize:13,color:C.muted}}>No sales yet</div>:topItems.map(([name,qty],i)=>(
+            <div key={name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <div style={{width:20,height:20,borderRadius:"50%",background:i===0?C.primary:C.faint,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:i===0?"#fff":C.muted,flexShrink:0}}>{i+1}</div>
+              <div style={{flex:1,fontSize:13,fontWeight:600,color:C.black,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</div>
+              <span style={{fontSize:12,color:C.primary,fontWeight:700}}>{qty}×</span>
+            </div>
+          ))}
+        </div>
+        <div style={{background:C.surface,borderRadius:14,padding:18,border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.black,marginBottom:12}}>Staff Today</div>
+          {staffPerf.length===0?<div style={{fontSize:13,color:C.muted}}>No sales yet</div>:staffPerf.map(s=>(
+            <div key={s.name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${C.primary},${C.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",flexShrink:0}}>{s.initials}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600,color:C.black}}>{s.name}</div>
+                <div style={{fontSize:11,color:C.muted}}>{s.orders} orders</div>
+              </div>
+              <span style={{fontSize:13,fontWeight:700,color:C.primary}}>{fmt(s.revenue)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Alerts */}
+      {lowStock.length>0&&(
+        <div style={{background:"#fff5f5",border:`1px solid ${C.red}30`,borderRadius:14,padding:18}}>
+          <div style={{fontSize:14,fontWeight:700,color:C.red,marginBottom:10}}>⚠ {lowStock.length} Low Stock Alert{lowStock.length!==1?"s":""}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {lowStock.map(i=>(
+              <div key={i.id} style={{background:"#fee",borderRadius:8,padding:"6px 12px",fontSize:13,color:C.red,fontWeight:600}}>
+                {i.name}: {i.stock} {i.unit} left
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent orders */}
+      <div style={{background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.border}`,fontSize:13,fontWeight:700,color:C.black}}>Recent Orders</div>
+        {rangeOrders.length===0
+          ? <div style={{padding:24,textAlign:"center",color:C.muted,fontSize:13}}>No orders in this period</div>
+          : <div>
+              {[...rangeOrders].reverse().slice(0,8).map(o=>{
+                const items=typeof o.items==="string"?JSON.parse(o.items||"[]"):o.items||[]
+                return(
+                  <div key={o.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:C.black,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{items.map(i=>i.name).join(", ")}</div>
+                      <div style={{fontSize:11,color:C.muted}}>{String(o.time||"").slice(0,5)} · {o.staff_name||"—"} · {o.method}</div>
+                    </div>
+                    <div style={{fontSize:15,fontWeight:800,color:C.primary,flexShrink:0}}>{fmt(o.total)}</div>
+                  </div>
+                )
+              })}
+            </div>
+        }
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PAYFAST BILLING MODULE (integrated into Settings → Plan & Billing)
+// ══════════════════════════════════════════════════════════════════════════════
+function PayFastBillingSection({business}) {
+  const [loading,setLoading] = useState(false)
+
+  // PayFast sandbox credentials (replace with live when ready)
+  const PAYFAST_MERCHANT_ID  = "10000100"   // replace with your merchant ID
+  const PAYFAST_MERCHANT_KEY = "46f0cd694581a"  // replace with your merchant key
+  const PAYFAST_URL = "https://sandbox.payfast.co.za/eng/process"  // use https://www.payfast.co.za/eng/process in production
+
+  const plans = [
+    { id:"pro",   name:"Pro",        amount:"499.00", period:"Monthly", description:"BrewBase Pro Monthly Subscription" },
+    { id:"pro_y", name:"Pro Yearly", amount:"4990.00",period:"Yearly",  description:"BrewBase Pro Yearly Subscription (17% saving)" },
+  ]
+
+  const subscribe = (plan) => {
+    setLoading(true)
+    const form = document.createElement("form")
+    form.method = "POST"
+    form.action = PAYFAST_URL
+
+    const fields = {
+      merchant_id:   PAYFAST_MERCHANT_ID,
+      merchant_key:  PAYFAST_MERCHANT_KEY,
+      return_url:    window.location.origin+"?payment=success",
+      cancel_url:    window.location.origin+"?payment=cancel",
+      notify_url:    "https://brewbase.vercel.app/api/payfast-notify", // Vercel serverless webhook
+      name_first:    business?.name||"",
+      email_address: business?.email||"",
+      m_payment_id:  business?.id||"",
+      amount:        plan.amount,
+      item_name:     plan.description,
+      subscription_type: "1",
+      billing_date:  new Date().toISOString().slice(0,10),
+      recurring_amount: plan.amount,
+      frequency:     plan.period==="Yearly"?"6":"3",
+      cycles:        "0",
+      custom_str1:   business?.id||"",
+      custom_str2:   plan.id,
+    }
+
+    Object.entries(fields).forEach(([k,v])=>{
+      const input = document.createElement("input")
+      input.type="hidden"; input.name=k; input.value=v
+      form.appendChild(input)
+    })
+
+    document.body.appendChild(form)
+    form.submit()
+  }
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{background:C.primaryPale,border:`1px solid ${C.primary}30`,borderRadius:14,padding:20}}>
+        <div style={{fontSize:16,fontWeight:700,color:C.primary,marginBottom:4}}>
+          Current Plan: {(business?.plan_id||"free").toUpperCase()}
+        </div>
+        <div style={{fontSize:13,color:C.muted}}>
+          {business?.trial_ends_at&&new Date(business.trial_ends_at)>new Date()
+            ? `🎉 Free trial active — expires ${new Date(business.trial_ends_at).toLocaleDateString("en-ZA")}`
+            : business?.plan_id==="free"?"Upgrade to unlock all features":"Active subscription"}
+        </div>
+      </div>
+
+      {business?.plan_id==="free"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          {plans.map(plan=>(
+            <div key={plan.id} style={{background:C.surface,border:`2px solid ${C.border}`,borderRadius:14,padding:20,display:"flex",flexDirection:"column",gap:14}}>
+              <div>
+                <div style={{fontSize:18,fontWeight:800,color:C.black}}>{plan.name}</div>
+                <div style={{fontSize:26,fontWeight:800,color:C.primary,margin:"6px 0"}}>
+                  R{plan.amount}<span style={{fontSize:13,fontWeight:400,color:C.muted}}>/{plan.period.toLowerCase()}</span>
+                </div>
+                {plan.id==="pro_y"&&<Chip color="amber" size="sm">Save 17%</Chip>}
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6,flex:1}}>
+                {["Unlimited products & staff","Full accounting & P&L","Loyalty programme","Advanced reports","Inventory management","OCR expense scanning","Priority support"].map(f=>(
+                  <div key={f} style={{display:"flex",gap:8,fontSize:13,color:C.black,alignItems:"flex-start"}}>
+                    <span style={{color:C.primary,flexShrink:0}}>✓</span>{f}
+                  </div>
+                ))}
+              </div>
+              <Btn onClick={()=>subscribe(plan)} disabled={loading} size="lg" style={{width:"100%"}}>
+                {loading?"Redirecting…":`Subscribe via PayFast`}
+              </Btn>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{background:C.faint,borderRadius:10,padding:"12px 16px",fontSize:13,color:C.muted}}>
+        🔒 Payments are securely processed by PayFast. BrewBase never stores your card details. Subscriptions can be cancelled at any time from your PayFast account.
+      </div>
+
+      {business?.plan_id!=="free"&&(
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+          <div style={{fontSize:14,fontWeight:600,color:C.black,marginBottom:8}}>Manage Subscription</div>
+          <div style={{fontSize:13,color:C.muted,marginBottom:12}}>To cancel or update your subscription, log in to your PayFast account at <strong>payfast.co.za</strong></div>
+          <Btn variant="outline" size="sm" onClick={()=>window.open("https://www.payfast.co.za","_blank")}>Open PayFast Account</Btn>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FIRST LOGIN PIN PROMPT (shown once after account creation)
+// ══════════════════════════════════════════════════════════════════════════════
+function FirstLoginPinPrompt({staff, onDone}) {
+  const [pin,setPin]         = useState("")
+  const [confirm,setConfirm] = useState("")
+  const [error,setError]     = useState("")
+  const [saving,setSaving]   = useState(false)
+  const [skipped,setSkipped] = useState(false)
+
+  if(skipped) return null
+
+  const save = async () => {
+    setError("")
+    if(pin.length!==4||!/^\d+$/.test(pin)){ setError("PIN must be exactly 4 digits"); return }
+    if(pin!==confirm){ setError("PINs don't match"); return }
+    setSaving(true)
+    await supabase.from("bb_staff").update({pin}).eq("id",staff?.id)
+    setSaving(false)
+    localStorage.setItem("bb_pin_set_"+staff?.id,"1")
+    onDone()
+  }
+
+  // Only show if PIN is still default 0000
+  if(staff?.pin!=="0000") return null
+  if(localStorage.getItem("bb_pin_set_"+staff?.id)) return null
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:C.surface,borderRadius:20,padding:32,maxWidth:400,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,.3)"}}>
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <div style={{fontSize:48,marginBottom:12}}>🔐</div>
+          <div style={{fontSize:22,fontWeight:800,color:C.black,fontFamily:"Playfair Display,serif",marginBottom:6}}>Set Your PIN</div>
+          <div style={{fontSize:14,color:C.muted,lineHeight:1.6}}>
+            Your account was created with the default PIN <strong>0000</strong>. Set a secure 4-digit PIN now to protect your account.
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Input label="New PIN (4 digits)" type="password" value={pin} onChange={e=>{ setPin(e.target.value.slice(0,4)); setError("") }} placeholder="••••"/>
+          <Input label="Confirm PIN" type="password" value={confirm} onChange={e=>{ setConfirm(e.target.value.slice(0,4)); setError("") }} placeholder="••••"/>
+          {error&&<div style={{color:C.red,fontSize:13,fontWeight:600}}>{error}</div>}
+          <Btn onClick={save} disabled={saving||!pin||!confirm} size="lg" style={{width:"100%"}}>{saving?"Saving…":"Set PIN & Continue"}</Btn>
+          <button onClick={()=>{ localStorage.setItem("bb_pin_set_"+staff?.id,"1"); setSkipped(true); onDone() }}
+            style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:13,padding:"4px 0",fontFamily:"Inter,sans-serif"}}>
+            Skip for now (not recommended)
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
