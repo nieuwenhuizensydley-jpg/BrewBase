@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react"
+import { useState, useEffect, useRef, useCallback, createContext, useContext, Component } from "react"
 import { supabase } from "./lib/supabase.js"
 
 
@@ -50,6 +50,25 @@ const C = COLORS
 
 // ── Utility ──────────────────────────────────────────────────────────────────
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+
+// ── Error Boundary ──────────────────────────────────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = {error:null} }
+  static getDerivedStateFromError(e) { return {error:e} }
+  render() {
+    if(this.state.error) return (
+      <div style={{minHeight:"100vh",background:"#f5f3ef",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+        <div style={{maxWidth:400,textAlign:"center"}}>
+          <div style={{fontSize:56,marginBottom:16}}>☕</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#0e0e0e",fontFamily:"Playfair Display,serif",marginBottom:8}}>Something went wrong</div>
+          <div style={{fontSize:14,color:"#6b6b6b",marginBottom:24,background:"#f0ede8",borderRadius:8,padding:"10px 14px",fontFamily:"monospace",textAlign:"left"}}>{this.state.error?.message}</div>
+          <button onClick={()=>window.location.reload()} style={{background:"#4a7c59",color:"#fff",border:"none",borderRadius:10,padding:"14px 28px",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>Reload App</button>
+        </div>
+      </div>
+    )
+    return this.props.children
+  }
+}
 const fmt = (n, sym="R") => `${sym}${Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")}`
 const todayISO = () => new Date().toISOString().slice(0,10)
 const nowTime  = () => new Date().toTimeString().slice(0,5)
@@ -74,6 +93,24 @@ const BusinessCtx = createContext(null)
 const StaffCtx    = createContext(null)
 const useBusiness = () => useContext(BusinessCtx)
 const useStaff    = () => useContext(StaffCtx)
+
+// ── Offline warning banner ─────────────────────────────────────────────────
+function OfflineBanner() {
+  const [offline, setOffline] = useState(!navigator.onLine)
+  useEffect(()=>{
+    const on  = ()=>setOffline(false)
+    const off = ()=>setOffline(true)
+    window.addEventListener("online",on)
+    window.addEventListener("offline",off)
+    return ()=>{ window.removeEventListener("online",on); window.removeEventListener("offline",off) }
+  },[])
+  if(!offline) return null
+  return (
+    <div style={{position:"fixed",top:0,left:0,right:0,zIndex:9999,background:"#d64545",color:"#fff",textAlign:"center",padding:"10px 20px",fontSize:13,fontWeight:600,fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+      <span>⚠</span> No internet connection — changes will sync when you reconnect
+    </div>
+  )
+}
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 function useData(table, filter={}, deps=[]) {
@@ -649,10 +686,14 @@ const NAV_ITEMS = [
   {id:"accounting",icon:"💰", label:"Accounting",    roles:["owner","manager"]},
   {id:"reports",   icon:"📈", label:"Reports",       roles:["owner","manager"]},
   {id:"customers", icon:"🎯", label:"Customers",     roles:["owner","manager"]},
-  {id:"printer",   icon:"🖨️", label:"Printer",       roles:["owner","manager"]},
-  {id:"franchise", icon:"🏢", label:"Franchise",     roles:["owner"]},
-  {id:"owner",     icon:"📱", label:"Owner View",    roles:["owner"]},
-  {id:"settings",  icon:"⚙️", label:"Settings",      roles:["owner","manager"]},
+  {id:"printer",       icon:"🖨️", label:"Printer",       roles:["owner","manager"]},
+  {id:"franchise",     icon:"🏢", label:"Franchise",     roles:["owner"]},
+  {id:"owner",         icon:"📱", label:"Owner View",    roles:["owner"]},
+  {id:"waste",         icon:"🗑️", label:"Waste Log",     roles:["owner","manager"]},
+  {id:"purchase_orders",icon:"📬",label:"Purchase Orders",roles:["owner","manager"]},
+  {id:"invoices",      icon:"🧾", label:"Invoices",      roles:["owner","manager"]},
+  {id:"bank_recon",    icon:"🏦", label:"Bank Recon",    roles:["owner","manager"]},
+  {id:"settings",      icon:"⚙️", label:"Settings",      roles:["owner","manager"]},
 ]
 
 function AppShell({business, staff, onLogout}) {
@@ -691,8 +732,12 @@ function AppShell({business, staff, onLogout}) {
     customers: <CustomersModule/>,
     printer:   <PrinterModule/>,
     franchise: <FranchiseModule/>,
-    owner:     <OwnerDashboardModule/>,
-    settings:  <SettingsModule onLogout={onLogout}/>,
+    owner:         <OwnerDashboardModule/>,
+    waste:         <WasteLogModule/>,
+    purchase_orders:<PurchaseOrdersModule/>,
+    invoices:      <InvoicesModule/>,
+    bank_recon:    <BankReconciliationModule/>,
+    settings:      <SettingsModule onLogout={onLogout}/>,
   }
 
   const currentMod = allowedNav.find(n=>n.id===active)||allowedNav[0]
@@ -702,6 +747,7 @@ function AppShell({business, staff, onLogout}) {
 
   return (
     <div style={{display:"flex",height:"100vh",background:C.bg,overflow:"hidden",fontFamily:"Inter,sans-serif"}}>
+      <OfflineBanner/>
       {!pinPromptDone&&<FirstLoginPinPrompt staff={staff} onDone={()=>setPinPromptDone(true)}/>}
       <style>{`
         @keyframes spin { to { transform:rotate(360deg) } }
@@ -1006,10 +1052,16 @@ function POSModule() {
   const {data:loyaltyRules} = useData("bb_loyalty_rules")
   const {data:shifts} = useData("bb_shifts")
 
-  // Filter menu items
+  // Filter menu items (including time-of-day availability)
   const filtered = menuItems.filter(item => {
     const catMatch = activeCat === "all" || item.category_id === activeCat
     const searchMatch = !search || item.name.toLowerCase().includes(search.toLowerCase())
+    // Time availability check
+    if(item.available_from && item.available_to) {
+      const now = new Date().toTimeString().slice(0,5)
+      const available = now >= item.available_from && now <= item.available_to
+      if(!available) return false
+    }
     return catMatch && searchMatch
   })
 
@@ -1102,7 +1154,10 @@ function POSModule() {
   // Loyalty redemption: R10 per 100 points
   const loyaltyRule = loyaltyRules[0]
   const pointsValue = redeemPoints && loyaltyCustomer ? Math.min((loyaltyCustomer.loyalty_points||0)/100*10, subtotal-discAmt) : 0
-  const total = Math.max(0, subtotal - discAmt - pointsValue + tipAmt)
+  // VAT calculation
+  const vatRate = business?.vat_registered ? parseFloat(business?.vat_rate||15)/100 : 0
+  const vatAmt  = (subtotal - discAmt - pointsValue) * vatRate
+  const total = Math.max(0, subtotal - discAmt - pointsValue + vatAmt + tipAmt)
   // Points earned this sale (1 point per R1 spent)
   const pointsEarned = Math.floor(total)
   const cashNum = parseFloat(cashGiven) || 0
@@ -1149,6 +1204,7 @@ function POSModule() {
         discount_amt: discAmt,
         discount_reason: discountReason||null,
         tip: tipAmt,
+        vat_amt: vatAmt,
         total,
         method: payMethod,
         split_card: payMethod === "split" ? parseFloat(splitCard) || 0 : 0,
@@ -1387,6 +1443,7 @@ function POSModule() {
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, marginBottom: 4 }}><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
                 {discAmt > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.green, marginBottom: 4 }}><span>{discountType==="comp"?"Complimentary":discountType==="fixed"?"Discount":discountType==="percent"?`Discount ${discountPct}%`:"Discount"}</span><span>−{fmt(discAmt)}</span></div>}
                 {pointsValue > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.amber, marginBottom: 4 }}><span>🎯 Loyalty Redemption</span><span>−{fmt(pointsValue)}</span></div>}
+                {vatAmt > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, marginBottom: 4 }}><span>VAT ({business?.vat_rate||15}%)</span><span>+{fmt(vatAmt)}</span></div>}
                 {tipAmt > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.amber, marginBottom: 4 }}><span>Tip</span><span>+{fmt(tipAmt)}</span></div>}
                 {loyaltyCustomer && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.primary, marginBottom: 4 }}><span>🎯 {loyaltyCustomer.name}</span><span>+{pointsEarned}pts</span></div>}
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 800, color: C.black, borderTop: `1px solid ${C.border}`, paddingTop: 10, marginTop: 4, marginBottom: 12 }}><span>Total</span><span style={{ color: C.primary }}>{fmt(total)}</span></div>
@@ -1846,6 +1903,9 @@ function MenuModule() {
   const [iTrack,setITrack]     = useState(false)
   const [iStock,setIStock]     = useState("")
   const [iReorder,setIReorder] = useState("")
+  const [iImageUrl,setIImageUrl] = useState("")
+  const [iAvailFrom,setIAvailFrom] = useState("")
+  const [iAvailTo,setIAvailTo]   = useState("")
   const [iLinkedGroups,setILinkedGroups]= useState([])
 
   const [gName,setGName]       = useState("")
@@ -1855,10 +1915,11 @@ function MenuModule() {
 
   const openNewCat  = () => { setEditCat(null);  setCatName(""); setCatEmoji("☕"); setCatModal(true) }
   const openEditCat = (c)=> { setEditCat(c); setCatName(c.name); setCatEmoji(c.emoji||"☕"); setCatModal(true) }
-  const openNewItem = () => { setEditItem(null); setIName(""); setIPrice(""); setICost(""); setICat(""); setIEmoji("☕"); setIDesc(""); setITrack(false); setIStock(""); setIReorder(""); setILinkedGroups([]); setItemModal(true) }
+  const openNewItem = () => { setEditItem(null); setIName(""); setIPrice(""); setICost(""); setICat(""); setIEmoji("☕"); setIDesc(""); setITrack(false); setIStock(""); setIReorder(""); setIImageUrl(""); setIAvailFrom(""); setIAvailTo(""); setILinkedGroups([]); setItemModal(true) }
   const openEditItem= (item)=>{
     setEditItem(item); setIName(item.name); setIPrice(String(item.price)); setICost(String(item.cost||"")); setICat(item.category_id||""); setIEmoji(item.emoji||"☕"); setIDesc(item.description||""); setITrack(item.track_stock||false); setIStock(String(item.stock||"")); setIReorder(String(item.reorder_level||""))
     setILinkedGroups(links.filter(l=>l.item_id===item.id).map(l=>l.group_id))
+    setIImageUrl(item.image_url||""); setIAvailFrom(item.available_from||""); setIAvailTo(item.available_to||"")
     setItemModal(true)
   }
   const openNewGroup= () => { setEditGroup(null); setGName(""); setGType("single"); setGRequired(false); setGOptions([{name:"",price_delta:0}]); setGroupModal(true) }
@@ -1878,7 +1939,7 @@ function MenuModule() {
 
   const saveItem = async () => {
     setSaving(true)
-    const p = {name:iName.trim(),price:parseFloat(iPrice)||0,cost:parseFloat(iCost)||0,category_id:iCat||null,emoji:iEmoji,description:iDesc,track_stock:iTrack,stock:parseFloat(iStock)||0,reorder_level:parseFloat(iReorder)||0,business_id:business.id,active:true}
+    const p = {name:iName.trim(),price:parseFloat(iPrice)||0,cost:parseFloat(iCost)||0,category_id:iCat||null,emoji:iEmoji,description:iDesc,track_stock:iTrack,stock:parseFloat(iStock)||0,reorder_level:parseFloat(iReorder)||0,image_url:iImageUrl||null,available_from:iAvailFrom||null,available_to:iAvailTo||null,business_id:business.id,active:true}
     let itemId = editItem?.id
     if(editItem){ await supabase.from("bb_menu_items").update(p).eq("id",itemId) }
     else { itemId=uid(); await supabase.from("bb_menu_items").insert({...p,id:itemId}) }
@@ -2054,6 +2115,12 @@ function MenuModule() {
               <Input label="Selling Price (R)" type="number" value={iPrice} onChange={e=>setIPrice(e.target.value)} placeholder="0.00" required/>
               <Input label="Cost Price (R)" type="number" value={iCost} onChange={e=>setICost(e.target.value)} placeholder="0.00"/>
               <Input label="Emoji" value={iEmoji} onChange={e=>setIEmoji(e.target.value)} placeholder="☕"/>
+            <div style={{display:"flex",flexDirection:"column",gap:6,gridColumn:"1/-1"}}>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Item Image URL (optional)</label>
+              <input value={iImageUrl||""} onChange={e=>setIImageUrl(e.target.value)} placeholder="https://... or leave blank to use emoji"
+                style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+              {iImageUrl&&<img src={iImageUrl} alt="preview" style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:`1px solid ${C.border}`}} onError={e=>e.target.style.display="none"}/>}
+            </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Category</label>
                 <select value={iCat} onChange={e=>setICat(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
@@ -2064,6 +2131,22 @@ function MenuModule() {
             </div>
             <Input label="Description (optional)" value={iDesc} onChange={e=>setIDesc(e.target.value)} placeholder="Brief description"/>
             <Toggle value={iTrack} onChange={setITrack} label="Track stock for this item"/>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Time-of-day availability (leave blank for always available)</label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  <label style={{fontSize:11,color:C.muted}}>Available from</label>
+                  <input type="time" value={iAvailFrom} onChange={e=>setIAvailFrom(e.target.value)}
+                    style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  <label style={{fontSize:11,color:C.muted}}>Until</label>
+                  <input type="time" value={iAvailTo} onChange={e=>setIAvailTo(e.target.value)}
+                    style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                </div>
+              </div>
+              {iAvailFrom&&iAvailTo&&<div style={{fontSize:12,color:C.primary}}>✓ Only available {iAvailFrom} – {iAvailTo}</div>}
+            </div>
             {iTrack&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 <Input label="Current Stock" type="number" value={iStock} onChange={e=>setIStock(e.target.value)} placeholder="0"/>
@@ -4309,6 +4392,631 @@ function LoyaltyLookupModal({business, onSelect, onClose}) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// WASTE LOG MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+function WasteLogModule() {
+  const business = useBusiness()
+  const currentStaff = useStaff()
+  const {data:wasteLog, refresh} = useData("bb_waste_log")
+  const {data:inventory}         = useData("bb_inventory")
+  const [modal,setModal]   = useState(false)
+  const [saving,setSaving] = useState(false)
+
+  const [wItem,setWItem]     = useState("")
+  const [wItemId,setWItemId] = useState("")
+  const [wQty,setWQty]       = useState("")
+  const [wUnit,setWUnit]     = useState("units")
+  const [wReason,setWReason] = useState("spoilage")
+  const [wCost,setWCost]     = useState("")
+  const [wNotes,setWNotes]   = useState("")
+  const [wDate,setWDate]     = useState(new Date().toISOString().slice(0,10))
+
+  const openModal = () => { setWItem(""); setWItemId(""); setWQty(""); setWUnit("units"); setWReason("spoilage"); setWCost(""); setWNotes(""); setWDate(new Date().toISOString().slice(0,10)); setModal(true) }
+
+  const save = async () => {
+    if(!wItem.trim()||!wQty){ alert("Item name and quantity required"); return }
+    setSaving(true)
+    await supabase.from("bb_waste_log").insert({
+      id:uid(), business_id:business.id,
+      item_id: wItemId||null, item_name:wItem.trim(),
+      quantity:parseFloat(wQty)||0, unit:wUnit,
+      reason:wReason, cost:parseFloat(wCost)||0,
+      logged_by:currentStaff?.id, date:wDate, notes:wNotes
+    })
+    // Deduct from inventory if linked
+    if(wItemId) {
+      const invItem = inventory.find(i=>i.id===wItemId)
+      if(invItem) {
+        const newStock = Math.max(0, parseFloat(invItem.stock||0) - (parseFloat(wQty)||0))
+        await supabase.from("bb_inventory").update({stock:newStock}).eq("id",wItemId)
+      }
+    }
+    await refresh(); setSaving(false); setModal(false)
+  }
+
+  const totalCost = wasteLog.reduce((s,w)=>s+parseFloat(w.cost||0),0)
+  const thisMonth = new Date().toISOString().slice(0,7)
+  const monthCost = wasteLog.filter(w=>w.date?.startsWith(thisMonth)).reduce((s,w)=>s+parseFloat(w.cost||0),0)
+
+  return (
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Waste & Spoilage Log</div>
+          <div style={{fontSize:13,color:C.muted}}>{wasteLog.length} entries logged</div>
+        </div>
+        <Btn onClick={openModal}>+ Log Waste</Btn>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14}}>
+        <KPI label="Total Waste Cost" value={fmt(totalCost)} color={C.red} icon="🗑"/>
+        <KPI label="This Month" value={fmt(monthCost)} color={C.amber} icon="📅"/>
+        <KPI label="Entries" value={wasteLog.length} icon="📋"/>
+      </div>
+
+      {wasteLog.length===0
+        ? <Empty icon="✅" title="No waste logged" message="Log spoilage, breakage or expired items to track losses"/>
+        : <div style={{background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                <thead><tr style={{borderBottom:`2px solid ${C.border}`,background:C.faint}}>
+                  {["Date","Item","Qty","Reason","Cost","Logged By","Notes"].map(h=>(
+                    <th key={h} style={{padding:"12px 14px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {[...wasteLog].reverse().map(w=>(
+                    <tr key={w.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:"12px 14px",fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>{w.date}</td>
+                      <td style={{padding:"12px 14px",fontSize:14,fontWeight:600,color:C.black}}>{w.item_name}</td>
+                      <td style={{padding:"12px 14px",fontSize:13,color:C.black}}>{w.quantity} {w.unit}</td>
+                      <td style={{padding:"12px 14px"}}><Chip color={w.reason==="spoilage"?"red":w.reason==="expired"?"amber":"muted"} size="sm">{w.reason}</Chip></td>
+                      <td style={{padding:"12px 14px",fontSize:13,fontWeight:700,color:C.red}}>{w.cost>0?fmt(w.cost):"—"}</td>
+                      <td style={{padding:"12px 14px",fontSize:13,color:C.muted}}>{w.logged_by_name||"—"}</td>
+                      <td style={{padding:"12px 14px",fontSize:13,color:C.muted}}>{w.notes||"—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+      }
+
+      {modal&&(
+        <Modal title="Log Waste / Spoilage" onClose={()=>setModal(false)} width={480}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Inventory Item (or type custom)</label>
+              <select value={wItemId} onChange={e=>{
+                setWItemId(e.target.value)
+                const inv = inventory.find(i=>i.id===e.target.value)
+                if(inv){ setWItem(inv.name); setWUnit(inv.unit||"units") }
+              }} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                <option value="">Custom item (not in inventory)</option>
+                {inventory.map(i=><option key={i.id} value={i.id}>{i.name} ({i.stock} {i.unit})</option>)}
+              </select>
+            </div>
+            {!wItemId&&<Input label="Item Name" value={wItem} onChange={e=>setWItem(e.target.value)} placeholder="e.g. Milk, Croissants" required/>}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Input label="Quantity" type="number" value={wQty} onChange={e=>setWQty(e.target.value)} required/>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Unit</label>
+                <select value={wUnit} onChange={e=>setWUnit(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                  {["units","kg","g","L","ml","bags","boxes"].map(u=><option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Reason</label>
+                <select value={wReason} onChange={e=>setWReason(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                  {["spoilage","expired","breakage","theft","other"].map(r=><option key={r} value={r}>{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
+                </select>
+              </div>
+              <Input label="Cost (R)" type="number" value={wCost} onChange={e=>setWCost(e.target.value)} placeholder="Estimated loss value"/>
+              <Input label="Date" type="date" value={wDate} onChange={e=>setWDate(e.target.value)}/>
+            </div>
+            <Input label="Notes (optional)" value={wNotes} onChange={e=>setWNotes(e.target.value)} placeholder="Additional details"/>
+            <div style={{display:"flex",gap:10}}>
+              <Btn onClick={save} disabled={saving||!wItem.trim()||!wQty} style={{flex:1}} size="lg">{saving?"Saving…":"Log Waste"}</Btn>
+              <Btn variant="secondary" onClick={()=>setModal(false)} style={{flex:1}} size="lg">Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PURCHASE ORDERS & SUPPLIER MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+function PurchaseOrdersModule() {
+  const business = useBusiness()
+  const {data:orders, refresh} = useData("bb_purchase_orders")
+  const {data:inventory}        = useData("bb_inventory")
+  const [modal,setModal]   = useState(false)
+  const [view,setView]     = useState(null)
+  const [saving,setSaving] = useState(false)
+  const [tab,setTab]       = useState("orders") // orders | suppliers
+
+  const [poSupplier,setPoSupplier]   = useState("")
+  const [poDate,setPoDate]           = useState(new Date().toISOString().slice(0,10))
+  const [poExpected,setPoExpected]   = useState("")
+  const [poNotes,setPoNotes]         = useState("")
+  const [poItems,setPoItems]         = useState([{name:"",qty:"",unit:"units",cost:""}])
+
+  const openNew = () => { setPoSupplier(""); setPoDate(new Date().toISOString().slice(0,10)); setPoExpected(""); setPoNotes(""); setPoItems([{name:"",qty:"",unit:"units",cost:""}]); setModal(true) }
+
+  const save = async () => {
+    if(!poSupplier.trim()){ alert("Supplier name required"); return }
+    setSaving(true)
+    const validItems = poItems.filter(i=>i.name.trim())
+    const total = validItems.reduce((s,i)=>(s+(parseFloat(i.qty)||0)*(parseFloat(i.cost)||0)),0)
+    await supabase.from("bb_purchase_orders").insert({
+      id:uid(), business_id:business.id,
+      supplier:poSupplier.trim(), status:"pending",
+      order_date:poDate, expected_date:poExpected||null,
+      total, notes:poNotes, items:validItems
+    })
+    await refresh(); setSaving(false); setModal(false)
+  }
+
+  const updateStatus = async (id, status) => {
+    await supabase.from("bb_purchase_orders").update({status, received_date:status==="received"?new Date().toISOString().slice(0,10):null}).eq("id",id)
+    // If received, update inventory stock
+    if(status==="received") {
+      const po = orders.find(o=>o.id===id)
+      if(po) {
+        const items = typeof po.items==="string"?JSON.parse(po.items||"[]"):po.items||[]
+        for(const item of items) {
+          const invItem = inventory.find(i=>i.name.toLowerCase()===item.name.toLowerCase())
+          if(invItem) {
+            await supabase.from("bb_inventory").update({stock:parseFloat(invItem.stock||0)+(parseFloat(item.qty)||0)}).eq("id",invItem.id)
+          }
+        }
+      }
+    }
+    await refresh()
+    setView(null)
+  }
+
+  // Extract unique suppliers from inventory + purchase orders
+  const suppliers = [...new Set([...inventory.map(i=>i.supplier).filter(Boolean), ...orders.map(o=>o.supplier).filter(Boolean)])]
+
+  const statusColor = (s) => s==="received"?"primary":s==="ordered"?"blue":s==="cancelled"?"red":"amber"
+
+  return (
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Purchase Orders</div>
+          <div style={{fontSize:13,color:C.muted}}>{orders.filter(o=>o.status==="pending"||o.status==="ordered").length} active orders</div>
+        </div>
+        <Btn onClick={openNew}>+ New Order</Btn>
+      </div>
+
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
+        {[["orders","Purchase Orders"],["suppliers","Suppliers"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 18px",border:"none",background:"transparent",cursor:"pointer",fontSize:14,fontWeight:tab===id?700:400,color:tab===id?C.primary:C.muted,borderBottom:`2px solid ${tab===id?C.primary:"transparent"}`,fontFamily:"Inter,sans-serif",marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+
+      {tab==="orders"&&(
+        orders.length===0
+          ? <Empty icon="📦" title="No purchase orders yet" message="Create a purchase order to track incoming stock from suppliers" action={<Btn onClick={openNew}>+ New Order</Btn>}/>
+          : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {orders.map(po=>{
+                const items = typeof po.items==="string"?JSON.parse(po.items||"[]"):po.items||[]
+                return(
+                  <div key={po.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+                    <div>
+                      <div style={{fontSize:15,fontWeight:700,color:C.black}}>{po.supplier}</div>
+                      <div style={{fontSize:13,color:C.muted}}>{items.length} item{items.length!==1?"s":""} · Ordered {po.order_date}{po.expected_date?` · Expected ${po.expected_date}`:""}</div>
+                      <div style={{fontSize:15,fontWeight:700,color:C.primary,marginTop:4}}>{fmt(po.total)}</div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <Chip color={statusColor(po.status)} size="sm">{po.status}</Chip>
+                      <Btn variant="secondary" size="sm" onClick={()=>setView(po)}>View</Btn>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+      )}
+
+      {tab==="suppliers"&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:12}}>
+          {suppliers.length===0
+            ? <Empty icon="🏭" title="No suppliers yet" message="Suppliers are added automatically from inventory and purchase orders"/>
+            : suppliers.map(s=>{
+                const sOrders = orders.filter(o=>o.supplier===s)
+                const sItems  = inventory.filter(i=>i.supplier===s)
+                return(
+                  <div key={s} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
+                    <div style={{fontSize:16,fontWeight:700,color:C.black,marginBottom:4}}>{s}</div>
+                    <div style={{fontSize:13,color:C.muted}}>{sItems.length} inventory item{sItems.length!==1?"s":""}</div>
+                    <div style={{fontSize:13,color:C.muted}}>{sOrders.length} purchase order{sOrders.length!==1?"s":""}</div>
+                    <div style={{fontSize:14,fontWeight:700,color:C.primary,marginTop:8}}>{fmt(sOrders.reduce((t,o)=>t+parseFloat(o.total||0),0))} ordered total</div>
+                  </div>
+                )
+              })
+          }
+        </div>
+      )}
+
+      {modal&&(
+        <Modal title="New Purchase Order" onClose={()=>setModal(false)} width={560}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Input label="Supplier" value={poSupplier} onChange={e=>setPoSupplier(e.target.value)} placeholder="Supplier name" required style={{gridColumn:"1/-1"}}/>
+              <Input label="Order Date" type="date" value={poDate} onChange={e=>setPoDate(e.target.value)}/>
+              <Input label="Expected Delivery" type="date" value={poExpected} onChange={e=>setPoExpected(e.target.value)}/>
+            </div>
+            <div>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:8}}>Items to Order</label>
+              {poItems.map((item,i)=>(
+                <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr auto",gap:6,marginBottom:6,alignItems:"center"}}>
+                  <input value={item.name} onChange={e=>setPoItems(prev=>prev.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Item name"
+                    style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 10px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                  <input type="number" value={item.qty} onChange={e=>setPoItems(prev=>prev.map((x,j)=>j===i?{...x,qty:e.target.value}:x))} placeholder="Qty"
+                    style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 10px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                  <select value={item.unit} onChange={e=>setPoItems(prev=>prev.map((x,j)=>j===i?{...x,unit:e.target.value}:x))}
+                    style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 10px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                    {["units","kg","g","L","ml","bags","boxes"].map(u=><option key={u} value={u}>{u}</option>)}
+                  </select>
+                  <input type="number" value={item.cost} onChange={e=>setPoItems(prev=>prev.map((x,j)=>j===i?{...x,cost:e.target.value}:x))} placeholder="Cost/unit"
+                    style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 10px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                  <button onClick={()=>setPoItems(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:18,padding:"0 4px"}}>×</button>
+                </div>
+              ))}
+              <button onClick={()=>setPoItems(prev=>[...prev,{name:"",qty:"",unit:"units",cost:""}])}
+                style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:8,color:C.primary,cursor:"pointer",padding:"8px 16px",fontSize:13,fontFamily:"Inter,sans-serif",width:"100%",marginTop:4}}>
+                + Add Item
+              </button>
+              <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:C.primary,marginTop:8}}>
+                Total: {fmt(poItems.reduce((s,i)=>(s+(parseFloat(i.qty)||0)*(parseFloat(i.cost)||0)),0))}
+              </div>
+            </div>
+            <Input label="Notes (optional)" value={poNotes} onChange={e=>setPoNotes(e.target.value)} placeholder="Delivery instructions, notes…"/>
+            <div style={{display:"flex",gap:10}}>
+              <Btn onClick={save} disabled={saving||!poSupplier.trim()} style={{flex:1}} size="lg">{saving?"Saving…":"Create Order"}</Btn>
+              <Btn variant="secondary" onClick={()=>setModal(false)} style={{flex:1}} size="lg">Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {view&&(()=>{
+        const items = typeof view.items==="string"?JSON.parse(view.items||"[]"):view.items||[]
+        return(
+          <Modal title={`PO — ${view.supplier}`} subtitle={`${view.order_date} · ${view.status}`} onClose={()=>setView(null)} width={500}>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{background:C.faint,borderRadius:10,padding:14}}>
+                {items.map((item,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",marginBottom:8,fontSize:14}}>
+                    <span style={{color:C.black,fontWeight:600}}>{item.name}</span>
+                    <span style={{color:C.muted}}>{item.qty} {item.unit} @ {fmt(item.cost)} = <strong style={{color:C.primary}}>{fmt((parseFloat(item.qty)||0)*(parseFloat(item.cost)||0))}</strong></span>
+                  </div>
+                ))}
+                <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4,display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:16}}>
+                  <span>Total</span><span style={{color:C.primary}}>{fmt(view.total)}</span>
+                </div>
+              </div>
+              {view.notes&&<div style={{background:C.faint,borderRadius:8,padding:"10px 14px",fontSize:14,color:C.black}}>{view.notes}</div>}
+              {view.status!=="received"&&view.status!=="cancelled"&&(
+                <div style={{display:"flex",gap:10}}>
+                  {view.status==="pending"&&<Btn onClick={()=>updateStatus(view.id,"ordered")} style={{flex:1}}>Mark as Ordered</Btn>}
+                  {view.status==="ordered"&&<Btn onClick={()=>updateStatus(view.id,"received")} style={{flex:1}}>✓ Mark Received</Btn>}
+                  <Btn variant="danger" onClick={()=>updateStatus(view.id,"cancelled")} style={{flex:1}}>Cancel Order</Btn>
+                </div>
+              )}
+              {view.status==="received"&&<div style={{background:C.greenPale,borderRadius:10,padding:14,textAlign:"center",color:C.primary,fontWeight:700}}>✓ Order received — stock updated automatically</div>}
+            </div>
+          </Modal>
+        )
+      })()}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INVOICE GENERATOR (Catering & Events)
+// ══════════════════════════════════════════════════════════════════════════════
+function InvoicesModule() {
+  const business = useBusiness()
+  const {data:invoices, refresh} = useData("bb_invoices")
+  const [modal,setModal]   = useState(false)
+  const [saving,setSaving] = useState(false)
+
+  const [client,setClient]       = useState("")
+  const [clientEmail,setClientEmail] = useState("")
+  const [clientPhone,setClientPhone] = useState("")
+  const [dueDate,setDueDate]     = useState("")
+  const [deposit,setDeposit]     = useState("")
+  const [notes,setNotes]         = useState("")
+  const [iItems,setIItems]       = useState([{description:"",qty:1,unit_price:""}])
+  const vatRate = parseFloat(business?.vat_rate||15)/100
+
+  const subtotal = iItems.reduce((s,i)=>(s+(parseInt(i.qty)||1)*(parseFloat(i.unit_price)||0)),0)
+  const vatAmt   = business?.vat_registered ? subtotal*vatRate : 0
+  const total    = subtotal + vatAmt
+  const balance  = total - (parseFloat(deposit)||0)
+
+  const openNew = () => { setClient(""); setClientEmail(""); setClientPhone(""); setDueDate(""); setDeposit(""); setNotes(""); setIItems([{description:"",qty:1,unit_price:""}]); setModal(true) }
+
+  const save = async () => {
+    if(!client.trim()){ alert("Client name required"); return }
+    setSaving(true)
+    const invNum = `INV-${Date.now().toString().slice(-6)}`
+    await supabase.from("bb_invoices").insert({
+      id:uid(), business_id:business.id,
+      invoice_number:invNum,
+      client_name:client.trim(), client_email:clientEmail, client_phone:clientPhone,
+      items:iItems.filter(i=>i.description.trim()),
+      subtotal, vat_amt:vatAmt, total, deposit:parseFloat(deposit)||0, balance_due:balance,
+      status:"draft", issue_date:new Date().toISOString().slice(0,10),
+      due_date:dueDate||null, notes
+    })
+    await refresh(); setSaving(false); setModal(false)
+  }
+
+  const printInvoice = (inv) => {
+    const items = typeof inv.items==="string"?JSON.parse(inv.items||"[]"):inv.items||[]
+    const w = window.open("","_blank")
+    w.document.write(`<html><head><title>Invoice ${inv.invoice_number}</title>
+    <style>body{font-family:Inter,sans-serif;padding:40px;max-width:700px;margin:0 auto;color:#0e0e0e}
+    h1{color:#4a7c59;font-family:serif}table{width:100%;border-collapse:collapse;margin:20px 0}
+    th{background:#f5f3ef;padding:10px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:0.8px}
+    td{padding:10px;border-bottom:1px solid #e4e0da}.total{font-weight:800;font-size:18px}
+    .badge{background:#4a7c59;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700}</style>
+    </head><body>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px">
+      <div><h1>BrewBase</h1><div>${business?.name||""}</div>${business?.address?`<div>${business.address}</div>`:""}</div>
+      <div style="text-align:right"><h2 style="margin:0;color:#0e0e0e">INVOICE</h2>
+        <div style="font-size:20px;font-weight:800;color:#4a7c59">${inv.invoice_number}</div>
+        <div style="font-size:13px;color:#666">Issued: ${inv.issue_date}</div>
+        ${inv.due_date?`<div style="font-size:13px;color:#666">Due: ${inv.due_date}</div>`:""}
+      </div>
+    </div>
+    <div style="background:#f5f3ef;padding:16px;border-radius:8px;margin-bottom:24px">
+      <div style="font-weight:700;font-size:16px">${inv.client_name}</div>
+      ${inv.client_email?`<div>${inv.client_email}</div>`:""}
+      ${inv.client_phone?`<div>${inv.client_phone}</div>`:""}
+    </div>
+    <table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead><tbody>
+    ${items.map(i=>`<tr><td>${i.description}</td><td>${i.qty||1}</td><td>${fmt(i.unit_price)}</td><td>${fmt((parseInt(i.qty)||1)*(parseFloat(i.unit_price)||0))}</td></tr>`).join("")}
+    </tbody></table>
+    <div style="text-align:right;margin-top:16px">
+      <div style="margin-bottom:6px">Subtotal: <strong>${fmt(inv.subtotal)}</strong></div>
+      ${inv.vat_amt>0?`<div style="margin-bottom:6px">VAT (${business?.vat_rate||15}%): <strong>${fmt(inv.vat_amt)}</strong></div>`:""}
+      <div class="total" style="font-size:22px">Total: ${fmt(inv.total)}</div>
+      ${inv.deposit>0?`<div style="margin-top:8px;color:#666">Deposit paid: ${fmt(inv.deposit)}</div>
+      <div style="color:#4a7c59;font-weight:700">Balance due: ${fmt(inv.balance_due)}</div>`:""}
+    </div>
+    ${inv.notes?`<div style="margin-top:24px;padding:14px;background:#f5f3ef;border-radius:8px"><strong>Notes:</strong><p>${inv.notes}</p></div>`:""}
+    <div style="margin-top:40px;text-align:center;color:#999;font-size:12px">Thank you for your business — ${business?.name||"BrewBase"}</div>
+    </body></html>`)
+    w.document.close(); w.print()
+  }
+
+  const statusColor = s=>s==="paid"?"primary":s==="sent"?"blue":s==="overdue"?"red":"muted"
+
+  const updateStatus = async (id,status) => {
+    await supabase.from("bb_invoices").update({status,paid_date:status==="paid"?new Date().toISOString().slice(0,10):null}).eq("id",id)
+    await refresh()
+  }
+
+  return (
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Invoices</div>
+          <div style={{fontSize:13,color:C.muted}}>Catering, events & corporate orders</div>
+        </div>
+        <Btn onClick={openNew}>+ New Invoice</Btn>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14}}>
+        <KPI label="Total Invoiced" value={fmt(invoices.reduce((s,i)=>s+parseFloat(i.total||0),0))} color={C.primary} icon="🧾"/>
+        <KPI label="Balance Due" value={fmt(invoices.filter(i=>i.status!=="paid").reduce((s,i)=>s+parseFloat(i.balance_due||0),0))} color={C.amber} icon="⏳"/>
+        <KPI label="Paid" value={invoices.filter(i=>i.status==="paid").length} color={C.green} icon="✅"/>
+        <KPI label="Overdue" value={invoices.filter(i=>i.status==="overdue").length} color={C.red} icon="⚠"/>
+      </div>
+
+      {invoices.length===0
+        ? <Empty icon="🧾" title="No invoices yet" message="Create invoices for catering orders, events, or corporate clients" action={<Btn onClick={openNew}>+ New Invoice</Btn>}/>
+        : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {invoices.map(inv=>(
+              <div key={inv.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+                    <div style={{fontSize:15,fontWeight:700,color:C.black}}>{inv.client_name}</div>
+                    <Chip color={statusColor(inv.status)} size="sm">{inv.status}</Chip>
+                  </div>
+                  <div style={{fontSize:12,color:C.muted}}>{inv.invoice_number} · {inv.issue_date}{inv.due_date?` · Due ${inv.due_date}`:""}</div>
+                  <div style={{fontSize:15,fontWeight:700,color:C.primary,marginTop:4}}>{fmt(inv.total)}{inv.balance_due>0&&inv.status!=="paid"?<span style={{fontSize:12,color:C.amber,marginLeft:8}}>Balance: {fmt(inv.balance_due)}</span>:null}</div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <Btn variant="secondary" size="sm" onClick={()=>printInvoice(inv)}>🖨 Print</Btn>
+                  {inv.status!=="paid"&&<Btn size="sm" onClick={()=>updateStatus(inv.id,"paid")}>Mark Paid</Btn>}
+                  {inv.status==="draft"&&<Btn variant="secondary" size="sm" onClick={()=>updateStatus(inv.id,"sent")}>Mark Sent</Btn>}
+                </div>
+              </div>
+            ))}
+          </div>
+      }
+
+      {modal&&(
+        <Modal title="New Invoice" onClose={()=>setModal(false)} width={600}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <Input label="Client / Company Name" value={client} onChange={e=>setClient(e.target.value)} placeholder="e.g. Acme Corp, Wedding — Sarah & John" required/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Input label="Client Email" type="email" value={clientEmail} onChange={e=>setClientEmail(e.target.value)} placeholder="client@email.com"/>
+              <Input label="Client Phone" value={clientPhone} onChange={e=>setClientPhone(e.target.value)} placeholder="071 234 5678"/>
+              <Input label="Due Date" type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)}/>
+              <Input label="Deposit Received (R)" type="number" value={deposit} onChange={e=>setDeposit(e.target.value)} placeholder="0.00"/>
+            </div>
+            <div>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:8}}>Line Items</label>
+              {iItems.map((item,i)=>(
+                <div key={i} style={{display:"grid",gridTemplateColumns:"3fr 1fr 1fr auto",gap:6,marginBottom:6,alignItems:"center"}}>
+                  <input value={item.description} onChange={e=>setIItems(prev=>prev.map((x,j)=>j===i?{...x,description:e.target.value}:x))} placeholder="Description"
+                    style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                  <input type="number" value={item.qty} onChange={e=>setIItems(prev=>prev.map((x,j)=>j===i?{...x,qty:e.target.value}:x))} placeholder="Qty"
+                    style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                  <input type="number" value={item.unit_price} onChange={e=>setIItems(prev=>prev.map((x,j)=>j===i?{...x,unit_price:e.target.value}:x))} placeholder="Price (R)"
+                    style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                  <button onClick={()=>setIItems(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:18,padding:"0 4px"}}>×</button>
+                </div>
+              ))}
+              <button onClick={()=>setIItems(prev=>[...prev,{description:"",qty:1,unit_price:""}])}
+                style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:8,color:C.primary,cursor:"pointer",padding:"8px 16px",fontSize:13,fontFamily:"Inter,sans-serif",width:"100%",marginTop:4}}>
+                + Add Line Item
+              </button>
+            </div>
+            <div style={{background:C.faint,borderRadius:10,padding:14,display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:14}}><span style={{color:C.muted}}>Subtotal</span><span style={{color:C.black,fontWeight:600}}>{fmt(subtotal)}</span></div>
+              {business?.vat_registered&&<div style={{display:"flex",justifyContent:"space-between",fontSize:14}}><span style={{color:C.muted}}>VAT ({business?.vat_rate||15}%)</span><span style={{color:C.black,fontWeight:600}}>{fmt(vatAmt)}</span></div>}
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:16,fontWeight:800,borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4}}><span>Total</span><span style={{color:C.primary}}>{fmt(total)}</span></div>
+              {parseFloat(deposit)>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:14,color:C.amber}}><span>Balance due</span><span style={{fontWeight:700}}>{fmt(balance)}</span></div>}
+            </div>
+            <Input label="Notes (optional)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Payment terms, event details, special instructions…"/>
+            <div style={{display:"flex",gap:10}}>
+              <Btn onClick={save} disabled={saving||!client.trim()} style={{flex:1}} size="lg">{saving?"Saving…":"Create Invoice"}</Btn>
+              <Btn variant="secondary" onClick={()=>setModal(false)} style={{flex:1}} size="lg">Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BANK RECONCILIATION
+// ══════════════════════════════════════════════════════════════════════════════
+function BankReconciliationModule() {
+  const {data:orders}   = useData("bb_orders")
+  const {data:expenses} = useData("bb_expenses")
+  const [month,setMonth] = useState(new Date().toISOString().slice(0,7))
+  const [bankBalance,setBankBalance] = useState("")
+  const [openingBalance,setOpeningBalance] = useState("")
+  const [saved,setSaved] = useState(false)
+
+  const start = month+"-01"
+  const end   = new Date(new Date(start).getFullYear(), new Date(start).getMonth()+1, 0).toISOString().slice(0,10)
+
+  const periodOrders   = orders.filter(o=>o.date>=start&&o.date<=end&&o.status!=="refunded")
+  const periodExpenses = expenses.filter(e=>e.date>=start&&e.date<=end)
+
+  const cardIncome = periodOrders.filter(o=>o.method==="card"||o.method==="split").reduce((s,o)=>s+parseFloat(o.method==="split"?(o.split_card||0):o.total||0),0)
+  const cashIncome = periodOrders.filter(o=>o.method==="cash"||o.method==="split").reduce((s,o)=>s+parseFloat(o.method==="split"?(o.split_cash||0):o.total||0),0)
+  const eftIncome  = periodOrders.filter(o=>o.method==="eft").reduce((s,o)=>s+parseFloat(o.total||0),0)
+  const totalIncome= cardIncome+cashIncome+eftIncome
+
+  const totalExpenses = periodExpenses.reduce((s,e)=>s+parseFloat(e.amount||0),0)
+  const netMovement   = totalIncome - totalExpenses
+  const expectedBalance = (parseFloat(openingBalance)||0) + netMovement
+  const bankBal       = parseFloat(bankBalance)||0
+  const variance      = bankBal - expectedBalance
+
+  const exportRecon = () => {
+    const html=`<html><body><h1>Bank Reconciliation — ${month}</h1>
+    <h2>Income</h2><table border="1"><tr><th>Method</th><th>Amount</th></tr>
+    <tr><td>Card</td><td>${fmt(cardIncome)}</td></tr><tr><td>Cash</td><td>${fmt(cashIncome)}</td></tr><tr><td>EFT</td><td>${fmt(eftIncome)}</td></tr>
+    <tr><td><strong>Total Income</strong></td><td><strong>${fmt(totalIncome)}</strong></td></tr></table>
+    <h2>Expenses</h2><table border="1"><tr><th>Date</th><th>Description</th><th>Amount</th></tr>
+    ${periodExpenses.map(e=>`<tr><td>${e.date}</td><td>${e.description}</td><td>${fmt(e.amount)}</td></tr>`).join("")}
+    <tr><td colspan="2"><strong>Total Expenses</strong></td><td><strong>${fmt(totalExpenses)}</strong></td></tr></table>
+    <h2>Reconciliation</h2><table border="1">
+    <tr><td>Opening Balance</td><td>${fmt(parseFloat(openingBalance)||0)}</td></tr>
+    <tr><td>Net Movement</td><td>${fmt(netMovement)}</td></tr>
+    <tr><td>Expected Balance</td><td>${fmt(expectedBalance)}</td></tr>
+    <tr><td>Bank Statement Balance</td><td>${fmt(bankBal)}</td></tr>
+    <tr><td><strong>Variance</strong></td><td style="color:${Math.abs(variance)<0.01?"green":"red"}"><strong>${variance>=0?"+":""}${fmt(variance)}</strong></td></tr>
+    </table></body></html>`
+    const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([html],{type:"text/html;charset=utf-8"})); a.download=`BankRecon-${month}.html`; a.click()
+  }
+
+  return (
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Bank Reconciliation</div>
+          <div style={{fontSize:13,color:C.muted}}>Compare POS records to your bank statement</div>
+        </div>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <input type="month" value={month} onChange={e=>setMonth(e.target.value)}
+            style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+          <Btn variant="outline" size="sm" onClick={exportRecon}>⬇ Export</Btn>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        {/* POS Totals */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+          <SHead>POS Records — {month}</SHead>
+          <div style={{display:"flex",flexDirection:"column",gap:0}}>
+            {[["Card Income",cardIncome,C.blue],["Cash Income",cashIncome,C.amber],["EFT Income",eftIncome,C.primary],["Total Income",totalIncome,C.primary,true],["Total Expenses",totalExpenses,C.red,false],["Net Movement",netMovement,netMovement>=0?C.primary:C.red,true]].map(([label,val,color,bold])=>(
+              <div key={label} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${C.border}`,fontSize:bold?16:14,fontWeight:bold?800:400}}>
+                <span style={{color:bold?C.black:C.muted}}>{label}</span>
+                <span style={{color,fontWeight:bold?800:600}}>{label.includes("Expense")||label==="Net Movement"&&val<0?"-":""}{fmt(Math.abs(val))}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bank reconciliation inputs */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+          <SHead>Bank Statement</SHead>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <Input label="Opening Bank Balance (R)" type="number" value={openingBalance} onChange={e=>setOpeningBalance(e.target.value)} placeholder="Balance at start of month" hint="From your bank statement for this month"/>
+            <Input label="Closing Bank Balance (R)" type="number" value={bankBalance} onChange={e=>setBankBalance(e.target.value)} placeholder="Balance at end of month" hint="From your bank statement"/>
+
+            {bankBalance&&openingBalance&&(
+              <div style={{display:"flex",flexDirection:"column",gap:0,background:C.faint,borderRadius:10,padding:14}}>
+                {[["Expected Balance",expectedBalance,C.black,false],["Bank Balance",bankBal,C.black,false],["Variance",variance,Math.abs(variance)<0.01?C.primary:C.red,true]].map(([label,val,color,bold])=>(
+                  <div key={label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`,fontSize:bold?16:14,fontWeight:bold?800:400}}>
+                    <span style={{color:bold?C.black:C.muted}}>{label}</span>
+                    <span style={{color,fontWeight:bold?800:600}}>{val>=0?"+":""}{fmt(val)}</span>
+                  </div>
+                ))}
+                <div style={{marginTop:12,fontSize:14,fontWeight:700,color:Math.abs(variance)<0.01?C.primary:C.red,textAlign:"center"}}>
+                  {Math.abs(variance)<0.01?"✓ Books balance perfectly":Math.abs(variance)<10?`⚠ Minor variance of ${fmt(Math.abs(variance))} — check rounding`:`❌ Variance of ${fmt(Math.abs(variance))} — investigate missing transactions`}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Transactions list */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+        <SHead>All Transactions — {month}</SHead>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
+            <thead><tr style={{borderBottom:`2px solid ${C.border}`}}>
+              {["Date","Description","Type","Amount"].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[...periodOrders.map(o=>({date:o.date,desc:`Sale — ${o.staff_name||"—"}`,type:"income",amount:parseFloat(o.total||0)})),
+                ...periodExpenses.map(e=>({date:e.date,desc:e.description,type:"expense",amount:-parseFloat(e.amount||0)}))
+              ].sort((a,b)=>a.date.localeCompare(b.date)).map((t,i)=>(
+                <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"10px 12px",fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>{t.date}</td>
+                  <td style={{padding:"10px 12px",fontSize:13,color:C.black}}>{t.desc}</td>
+                  <td style={{padding:"10px 12px"}}><Chip color={t.type==="income"?"primary":"red"} size="sm">{t.type}</Chip></td>
+                  <td style={{padding:"10px 12px",fontSize:14,fontWeight:700,color:t.amount>=0?C.primary:C.red}}>{t.amount>=0?"+":""}{fmt(t.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // OWNER REMOTE DASHBOARD (phone-friendly, works from anywhere)
 // ══════════════════════════════════════════════════════════════════════════════
 function OwnerDashboardModule() {
@@ -4679,7 +5387,7 @@ function FirstLoginPinPrompt({staff, onDone}) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ROOT APP
 // ══════════════════════════════════════════════════════════════════════════════
-export default function App() {
+function AppRoot() {
   const [authUser,setAuthUser]   = useState(null)
   const [business,setBusiness]   = useState(null)
   const [staff,setStaff]         = useState(null)
@@ -4737,5 +5445,13 @@ export default function App() {
     <BusinessCtx.Provider value={business}>
       <AppShell business={business} staff={staff} onLogout={()=>setStaff(null)}/>
     </BusinessCtx.Provider>
+  )
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppRoot/>
+    </ErrorBoundary>
   )
 }
