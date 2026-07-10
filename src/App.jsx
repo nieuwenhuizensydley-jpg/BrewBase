@@ -979,7 +979,17 @@ function POSModule() {
   const [cashGiven, setCashGiven] = useState("")
   const [splitCard, setSplitCard] = useState("")
   const [splitCash, setSplitCash] = useState("")
-  const [discount, setDiscount] = useState(0)
+  // Discount system
+  const [discountType, setDiscountType] = useState("none") // none | percent | fixed | comp
+  const [discountPct, setDiscountPct]   = useState(0)
+  const [discountFixed, setDiscountFixed] = useState("")
+  const [discountReason, setDiscountReason] = useState("")
+  const [discountPin, setDiscountPin]   = useState("")
+  const [discountPinError, setDiscountPinError] = useState("")
+  const [discountPinModal, setDiscountPinModal] = useState(false)
+  const [pendingDiscountType, setPendingDiscountType] = useState(null)
+  // Legacy alias
+  const discount = discountType==="percent"?discountPct:0
   const [tipPct, setTipPct] = useState(0)
   const [customTip, setCustomTip] = useState("")
   const [saving, setSaving] = useState(false)
@@ -989,6 +999,12 @@ function POSModule() {
   const [tabsOpen, setTabsOpen] = useState(false)
   const [saveTabName, setSaveTabName] = useState("")
   const [activeTabId, setActiveTabId] = useState(null)
+  // Loyalty
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState(null)
+  const [loyaltyModal, setLoyaltyModal] = useState(false)
+  const [redeemPoints, setRedeemPoints] = useState(false)
+  const {data:loyaltyRules} = useData("bb_loyalty_rules")
+  const {data:shifts} = useData("bb_shifts")
 
   // Filter menu items
   const filtered = menuItems.filter(item => {
@@ -1078,9 +1094,17 @@ function POSModule() {
 
   // Calculations
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0)
-  const discAmt = subtotal * (discount / 100)
+  const discAmt = discountType==="comp" ? subtotal
+    : discountType==="fixed" ? Math.min(parseFloat(discountFixed)||0, subtotal)
+    : discountType==="percent" ? subtotal*(discountPct/100)
+    : 0
   const tipAmt = customTip !== "" ? (parseFloat(customTip) || 0) : subtotal * (tipPct / 100)
-  const total = subtotal - discAmt + tipAmt
+  // Loyalty redemption: R10 per 100 points
+  const loyaltyRule = loyaltyRules[0]
+  const pointsValue = redeemPoints && loyaltyCustomer ? Math.min((loyaltyCustomer.loyalty_points||0)/100*10, subtotal-discAmt) : 0
+  const total = Math.max(0, subtotal - discAmt - pointsValue + tipAmt)
+  // Points earned this sale (1 point per R1 spent)
+  const pointsEarned = Math.floor(total)
   const cashNum = parseFloat(cashGiven) || 0
   const change = Math.max(0, cashNum - total)
 
@@ -1097,10 +1121,10 @@ function POSModule() {
     (payMethod !== "split" || splitValid)
 
   const resetOrder = () => {
-    setCart([]); setDiscount(0); setTipPct(0); setCustomTip("")
-    setPayMethod(null); setCashGiven(""); setSplitCard(""); setSplitCash("")
-    setCheckoutOpen(false); setTableNum(""); setOrderType("sit-in")
-    setActiveTabId(null)
+    setCart([]); setDiscountType("none"); setDiscountPct(0); setDiscountFixed(""); setDiscountReason("")
+    setTipPct(0); setCustomTip(""); setPayMethod(null); setCashGiven(""); setSplitCard(""); setSplitCash("")
+    setCheckoutOpen(false); setTableNum(""); setOrderType("sit-in"); setActiveTabId(null)
+    setLoyaltyCustomer(null); setRedeemPoints(false)
   }
 
   const completeOrder = async () => {
@@ -1120,8 +1144,10 @@ function POSModule() {
         order_type: orderType,
         table_num: tableNum || null,
         subtotal,
-        discount_pct: discount,
+        discount_type: discountType,
+        discount_pct: discountType==="percent"?discountPct:0,
         discount_amt: discAmt,
+        discount_reason: discountReason||null,
         tip: tipAmt,
         total,
         method: payMethod,
@@ -1130,11 +1156,28 @@ function POSModule() {
         cash_given: payMethod === "cash" ? cashNum : 0,
         change_given: payMethod === "cash" ? change : 0,
         status: "completed",
+        shift_id: shifts.find(s=>s.status==="open"&&s.date===new Date().toISOString().slice(0,10))?.id||null,
+        customer_id: loyaltyCustomer?.id||null,
+        customer_name: loyaltyCustomer?.name||null,
       }
       await supabase.from("bb_orders").insert(order)
       if (activeTabId) {
         await supabase.from("bb_open_tabs").delete().eq("id", activeTabId)
         await refreshTabs()
+      }
+      // Update loyalty points
+      if(loyaltyCustomer) {
+        const newPoints = (loyaltyCustomer.loyalty_points||0) + pointsEarned - (redeemPoints?loyaltyCustomer.loyalty_points:0)
+        await supabase.from("bb_customers").update({
+          loyalty_points: Math.max(0, newPoints),
+          total_visits: (loyaltyCustomer.total_visits||0)+1,
+          total_spent: (parseFloat(loyaltyCustomer.total_spent)||0)+total,
+          last_visit: new Date().toISOString(),
+        }).eq("id", loyaltyCustomer.id)
+        await supabase.from("bb_loyalty_transactions").insert([
+          {id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"earn",points:pointsEarned,description:`Earned from order`},
+          ...(redeemPoints?[{id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"redeem",points:-(loyaltyCustomer.loyalty_points||0),description:"Redeemed for discount"}]:[])
+        ])
       }
       // Auto-print kitchen ticket
       if(BB_PRINTER.connected) {
@@ -1342,8 +1385,10 @@ function POSModule() {
             ) : !checkoutOpen ? (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, marginBottom: 4 }}><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
-                {discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.green, marginBottom: 4 }}><span>Discount {discount}%</span><span>−{fmt(discAmt)}</span></div>}
+                {discAmt > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.green, marginBottom: 4 }}><span>{discountType==="comp"?"Complimentary":discountType==="fixed"?"Discount":discountType==="percent"?`Discount ${discountPct}%`:"Discount"}</span><span>−{fmt(discAmt)}</span></div>}
+                {pointsValue > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.amber, marginBottom: 4 }}><span>🎯 Loyalty Redemption</span><span>−{fmt(pointsValue)}</span></div>}
                 {tipAmt > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.amber, marginBottom: 4 }}><span>Tip</span><span>+{fmt(tipAmt)}</span></div>}
+                {loyaltyCustomer && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.primary, marginBottom: 4 }}><span>🎯 {loyaltyCustomer.name}</span><span>+{pointsEarned}pts</span></div>}
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 800, color: C.black, borderTop: `1px solid ${C.border}`, paddingTop: 10, marginTop: 4, marginBottom: 12 }}><span>Total</span><span style={{ color: C.primary }}>{fmt(total)}</span></div>
                 <Btn size="lg" onClick={() => setCheckoutOpen(true)} style={{ width: "100%" }}>Charge · {fmt(total)}</Btn>
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -1359,17 +1404,47 @@ function POSModule() {
                   <div style={{ fontSize: 13, color: C.muted }}>Total amount due</div>
                 </div>
 
-                {/* Discount */}
+                {/* Discount & Comp System */}
                 <div>
-                  <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Discount</div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    {[0, 5, 10, 15, 20].map(d => (
-                      <button key={d} onClick={() => setDiscount(d)}
-                        style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: "1px solid", borderColor: discount === d ? C.primary : C.border, background: discount === d ? C.primaryPale : C.faint, color: discount === d ? C.primary : C.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "Inter,sans-serif" }}>
-                        {d === 0 ? "None" : `${d}%`}
+                  <div style={{fontSize:12,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8,marginBottom:8}}>Discount / Complimentary</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8}}>
+                    {[["none","None",""],["percent","%",""],["fixed","R Off",""],["comp","Comp","🎁"]].map(([type,label,icon])=>(
+                      <button key={type} onClick={()=>{
+                        if(type!=="none"&&staff?.role==="barista"){
+                          setPendingDiscountType(type); setDiscountPin(""); setDiscountPinError(""); setDiscountPinModal(true)
+                        } else {
+                          setDiscountType(type); setDiscountPct(0); setDiscountFixed("")
+                        }
+                      }}
+                        style={{padding:"10px 4px",borderRadius:8,border:"1px solid",borderColor:discountType===type?C.primary:C.border,background:discountType===type?C.primaryPale:C.faint,color:discountType===type?C.primary:C.muted,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                        {icon} {label}
                       </button>
                     ))}
                   </div>
+                  {discountType==="percent"&&(
+                    <div style={{display:"flex",gap:6,marginBottom:8}}>
+                      {[5,10,15,20,25,50].map(d=>(
+                        <button key={d} onClick={()=>setDiscountPct(d)}
+                          style={{flex:1,padding:"8px 4px",borderRadius:8,border:"1px solid",borderColor:discountPct===d?C.primary:C.border,background:discountPct===d?C.primaryPale:C.faint,color:discountPct===d?C.primary:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                          {d}%
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {discountType==="fixed"&&(
+                    <input type="number" value={discountFixed} onChange={e=>setDiscountFixed(e.target.value)} placeholder="Discount amount (R)"
+                      style={{width:"100%",background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+                  )}
+                  {discountType==="comp"&&(
+                    <div style={{background:C.amberPale,border:`1px solid ${C.amber}40`,borderRadius:8,padding:"8px 12px",fontSize:13,color:C.amber,fontWeight:600,marginBottom:8}}>
+                      🎁 Complimentary — full order is free
+                    </div>
+                  )}
+                  {discountType!=="none"&&(
+                    <input value={discountReason} onChange={e=>setDiscountReason(e.target.value)} placeholder="Reason for discount (required)"
+                      style={{width:"100%",background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none",boxSizing:"border-box"}}/>
+                  )}
+                  {discAmt>0&&<div style={{fontSize:13,color:C.green,fontWeight:600,marginTop:6}}>Saving: {fmt(discAmt)}</div>}
                 </div>
 
                 {/* Tip */}
@@ -1388,6 +1463,37 @@ function POSModule() {
                   </div>
                   <input type="number" value={customTip} onChange={e => { setCustomTip(e.target.value); setTipPct(0) }} placeholder="Custom tip (R)"
                     style={{ width: "100%", background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, color: C.black, padding: "8px 12px", fontSize: 14, fontFamily: "Inter,sans-serif", outline: "none", boxSizing: "border-box" }}/>
+                </div>
+
+                {/* Loyalty */}
+                <div>
+                  <div style={{fontSize:12,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8,marginBottom:8}}>Loyalty Programme</div>
+                  {loyaltyCustomer?(
+                    <div style={{background:C.amberPale,border:`1px solid ${C.amber}40`,borderRadius:10,padding:"12px 14px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <div>
+                          <div style={{fontSize:14,fontWeight:700,color:C.black}}>{loyaltyCustomer.name}</div>
+                          <div style={{fontSize:12,color:C.muted}}>{loyaltyCustomer.loyalty_points||0} points · {loyaltyCustomer.total_visits||0} visits</div>
+                        </div>
+                        <button onClick={()=>setLoyaltyCustomer(null)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>×</button>
+                      </div>
+                      <div style={{fontSize:13,color:C.primary,marginBottom:8}}>+{pointsEarned} points earned on this sale</div>
+                      {(loyaltyCustomer.loyalty_points||0)>=100&&(
+                        <div onClick={()=>setRedeemPoints(!redeemPoints)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:redeemPoints?C.primaryPale:C.faint,border:`1px solid ${redeemPoints?C.primary:C.border}`,borderRadius:8,cursor:"pointer"}}>
+                          <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${redeemPoints?C.primary:C.border}`,background:redeemPoints?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                            {redeemPoints&&<span style={{color:"#fff",fontSize:11}}>✓</span>}
+                          </div>
+                          <span style={{fontSize:13,fontWeight:600,color:redeemPoints?C.primary:C.black}}>
+                            Redeem {loyaltyCustomer.loyalty_points} points → save {fmt(Math.min((loyaltyCustomer.loyalty_points/100)*10,subtotal-discAmt))}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ):(
+                    <button onClick={()=>setLoyaltyModal(true)} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px dashed ${C.border}`,background:C.faint,color:C.muted,cursor:"pointer",fontSize:14,fontFamily:"Inter,sans-serif",fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                      🎯 Link Customer for Loyalty Points
+                    </button>
+                  )}
                 </div>
 
                 {/* Payment methods */}
@@ -1517,6 +1623,28 @@ function POSModule() {
         </Modal>
       )}
 
+      {/* ── LOYALTY LOOKUP MODAL ── */}
+      {loyaltyModal&&<LoyaltyLookupModal business={business} onSelect={c=>{setLoyaltyCustomer(c);setRedeemPoints(false)}} onClose={()=>setLoyaltyModal(false)}/>}
+
+      {/* ── DISCOUNT PIN MODAL (for baristas needing manager approval) ── */}
+      {discountPinModal&&(
+        <Modal title="Manager Approval Required" subtitle="Discounts require a manager or owner PIN" onClose={()=>setDiscountPinModal(false)} width={380}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <Input label="Manager PIN" type="password" value={discountPin} onChange={e=>{setDiscountPin(e.target.value.slice(0,4));setDiscountPinError("")}} placeholder="••••"/>
+            {discountPinError&&<div style={{color:C.red,fontSize:13,fontWeight:600}}>{discountPinError}</div>}
+            <Btn size="lg" onClick={async()=>{
+              // Check PIN against managers/owners
+              const {data:managers} = await supabase.from("bb_staff").select("*").eq("business_id",business.id).in("role",["owner","manager"])
+              const match = managers?.find(m=>String(m.pin)===String(discountPin))
+              if(!match){ setDiscountPinError("Incorrect PIN — manager or owner PIN required"); return }
+              setDiscountType(pendingDiscountType)
+              setDiscountPct(0); setDiscountFixed("")
+              setDiscountPinModal(false)
+            }} disabled={discountPin.length<4}>Approve Discount</Btn>
+          </div>
+        </Modal>
+      )}
+
       {/* ── OPEN TABS MODAL ── */}
       {tabsOpen && (
         <Modal title="Open Tabs" onClose={() => setTabsOpen(false)} width={480}>
@@ -1576,7 +1704,13 @@ function OrdersModule() {
 
   const filtered = orders.filter(o=>{
     const matchDate   = o.date>=dateFrom && o.date<=dateTo
-    const matchSearch = !search||(o.staff_name||"").toLowerCase().includes(search.toLowerCase())||String(o.id).includes(search)
+    const items = typeof o.items==="string"?JSON.parse(o.items||"[]"):o.items||[]
+    const matchSearch = !search
+      ||(o.staff_name||"").toLowerCase().includes(search.toLowerCase())
+      ||(o.customer_name||"").toLowerCase().includes(search.toLowerCase())
+      ||String(o.id).includes(search)
+      ||items.some(i=>(i.name||"").toLowerCase().includes(search.toLowerCase()))
+      ||(o.method||"").includes(search.toLowerCase())
     return matchDate && matchSearch
   })
   const totalRev = filtered.filter(o=>o.status!=="refunded").reduce((s,o)=>s+parseFloat(o.total||0),0)
@@ -1592,7 +1726,7 @@ function OrdersModule() {
   return (
     <div style={{padding:24,display:"flex",flexDirection:"column",gap:16}}>
       <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by staff or order ID…"
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search staff, customer, item, method…"
           style={{flex:1,minWidth:200,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
         <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
         <span style={{color:C.muted}}>to</span>
@@ -1609,7 +1743,7 @@ function OrdersModule() {
           : <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
                 <thead><tr style={{borderBottom:`2px solid ${C.border}`,background:C.faint}}>
-                  {["Date","Time","Staff","Items","Method","Table","Total","Status",""].map(h=>(
+                  {["Date","Time","Staff","Customer","Items","Method","Table","Total","Status",""].map(h=>(
                     <th key={h} style={{padding:"12px 14px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
                   ))}
                 </tr></thead>
@@ -2302,6 +2436,7 @@ function AccountingModule() {
   const [eStaff,setEStaff]   = useState("")
   const [eRecur,setERecur]   = useState(false)
   const [eRecurInterval,setERecurInterval] = useState("monthly")
+  const [ocrOpen,setOcrOpen] = useState(false)
 
   const openNew  = (type="expense") => { setEdit(null); setEDesc(""); setEAmt(""); setEType(type); setECat(""); setEDate(new Date().toISOString().slice(0,10)); setESupplier(""); setERef(""); setEStaff(""); setERecur(false); setModal(true) }
   const openEdit = (e) => { setEdit(e); setEDesc(e.description); setEAmt(String(e.amount)); setEType(e.expense_type||"expense"); setECat(e.category||""); setEDate(e.date); setESupplier(e.supplier||""); setERef(e.reference||""); setEStaff(e.staff_id||""); setERecur(e.is_recurring||false); setERecurInterval(e.recur_interval||"monthly"); setModal(true) }
@@ -2345,6 +2480,7 @@ function AccountingModule() {
         <Btn variant="outline" size="sm" onClick={exportExcel}>⬇ Export Excel</Btn>
         <Btn size="sm" onClick={()=>openNew("expense")} style={{marginLeft:"auto"}}>+ Expense</Btn>
         <Btn size="sm" variant="secondary" onClick={()=>openNew("wage")}>+ Wage</Btn>
+        <Btn size="sm" variant="outline" onClick={()=>setOcrOpen(true)}>📸 Scan Receipt</Btn>
       </div>
 
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
@@ -2429,6 +2565,8 @@ function AccountingModule() {
           </div>
         </div>
       )}
+
+      {ocrOpen&&<OCRExpenseModal business={business} staffList={staffList} onSave={refresh} onClose={()=>setOcrOpen(false)}/>}
 
       {modal&&(
         <Modal title={eType==="wage"?"Add Wage Entry":"Add Expense"} onClose={()=>setModal(false)} width={480}>
@@ -3933,6 +4071,240 @@ function FranchiseModule() {
         </div>
       )}
     </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// OCR EXPENSE SCANNING (uses Claude API for extraction)
+// ══════════════════════════════════════════════════════════════════════════════
+function OCRExpenseModal({business, staffList, onSave, onClose}) {
+  const [image,setImage]       = useState(null)
+  const [preview,setPreview]   = useState(null)
+  const [scanning,setScanning] = useState(false)
+  const [result,setResult]     = useState(null)
+  const [error,setError]       = useState("")
+  const [saving,setSaving]     = useState(false)
+
+  const [eDesc,setEDesc]     = useState("")
+  const [eAmt,setEAmt]       = useState("")
+  const [eDate,setEDate]     = useState(new Date().toISOString().slice(0,10))
+  const [eSupplier,setESupplier] = useState("")
+  const [eCat,setECat]       = useState("")
+  const [eRef,setERef]       = useState("")
+
+  const fileRef = useRef()
+
+  const handleFile = (e) => {
+    const file = e.target.files[0]
+    if(!file) return
+    setImage(file)
+    setResult(null)
+    setError("")
+    const reader = new FileReader()
+    reader.onload = () => setPreview(reader.result)
+    reader.readAsDataURL(file)
+  }
+
+  const scanReceipt = async () => {
+    if(!image) return
+    setScanning(true)
+    setError("")
+    try {
+      // Convert to base64
+      const base64 = await new Promise((res,rej)=>{
+        const r = new FileReader()
+        r.onload = () => res(r.result.split(",")[1])
+        r.onerror = rej
+        r.readAsDataURL(image)
+      })
+      // Call Claude API to extract receipt data
+      const response = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-6",
+          max_tokens:500,
+          messages:[{
+            role:"user",
+            content:[
+              {type:"image",source:{type:"base64",media_type:image.type||"image/jpeg",data:base64}},
+              {type:"text",text:`Extract the following from this receipt image and respond ONLY with a JSON object, no other text:
+{
+  "supplier": "store/supplier name",
+  "amount": 0.00,
+  "date": "YYYY-MM-DD",
+  "description": "brief description of purchase",
+  "category": "one of: Stock, Utilities, Equipment, Rent, Marketing, Other",
+  "reference": "invoice or receipt number if visible"
+}
+If a field is not visible, use null. Amount should be the total paid, as a number.`}
+            ]
+          }]
+        })
+      })
+      const data = await response.json()
+      const text = data.content?.[0]?.text||""
+      const clean = text.replace(/```json|```/g,"").trim()
+      const parsed = JSON.parse(clean)
+      setResult(parsed)
+      setEDesc(parsed.description||"")
+      setEAmt(parsed.amount?String(parsed.amount):"")
+      setEDate(parsed.date||new Date().toISOString().slice(0,10))
+      setESupplier(parsed.supplier||"")
+      setECat(parsed.category||"")
+      setERef(parsed.reference||"")
+    } catch(e) {
+      setError("Could not extract receipt data. Please fill in manually.")
+    }
+    setScanning(false)
+  }
+
+  const save = async () => {
+    if(!eDesc||!eAmt){ alert("Description and amount are required"); return }
+    setSaving(true)
+    await supabase.from("bb_expenses").insert({
+      id:uid(), business_id:business.id,
+      description:eDesc.trim(), amount:parseFloat(eAmt)||0,
+      expense_type:"expense", category:eCat, date:eDate,
+      supplier:eSupplier, reference:eRef,
+      ocr_processed:!!result, status:"paid",
+      receipt_url:preview||null,
+    })
+    setSaving(false)
+    onSave()
+    onClose()
+  }
+
+  return (
+    <Modal title="Scan Expense Receipt" subtitle="Take a photo or upload a receipt to extract details automatically" onClose={onClose} width={560}>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        {/* Upload area */}
+        <div onClick={()=>fileRef.current.click()} style={{border:`2px dashed ${preview?C.primary:C.border}`,borderRadius:12,padding:preview?0:32,cursor:"pointer",textAlign:"center",overflow:"hidden",minHeight:120,display:"flex",alignItems:"center",justifyContent:"center",background:C.faint,transition:"all 0.15s"}}>
+          {preview?(
+            <img src={preview} alt="receipt" style={{width:"100%",maxHeight:240,objectFit:"contain"}}/>
+          ):(
+            <div>
+              <div style={{fontSize:40,marginBottom:8}}>📸</div>
+              <div style={{fontSize:14,fontWeight:600,color:C.black}}>Tap to upload receipt photo</div>
+              <div style={{fontSize:12,color:C.muted,marginTop:4}}>JPG, PNG — photo or scan</div>
+            </div>
+          )}
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{display:"none"}}/>
+
+        {preview&&!result&&(
+          <Btn onClick={scanReceipt} disabled={scanning} size="lg" style={{width:"100%"}}>
+            {scanning?"🔍 Scanning receipt…":"✨ Extract Data with AI"}
+          </Btn>
+        )}
+
+        {result&&(
+          <div style={{background:C.greenPale,border:`1px solid ${C.primary}30`,borderRadius:10,padding:"10px 14px",fontSize:13,color:C.primary,fontWeight:600}}>
+            ✓ Receipt scanned successfully — review and edit the details below
+          </div>
+        )}
+        {error&&(
+          <div style={{background:C.redPale,border:`1px solid ${C.red}30`,borderRadius:10,padding:"10px 14px",fontSize:13,color:C.red}}>{error}</div>
+        )}
+
+        {/* Editable fields */}
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Input label="Description" value={eDesc} onChange={e=>setEDesc(e.target.value)} placeholder="e.g. Coffee beans — monthly supply" required/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Input label="Amount (R)" type="number" value={eAmt} onChange={e=>setEAmt(e.target.value)} required/>
+            <Input label="Date" type="date" value={eDate} onChange={e=>setEDate(e.target.value)}/>
+            <Input label="Supplier" value={eSupplier} onChange={e=>setESupplier(e.target.value)} placeholder="Supplier name"/>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Category</label>
+              <select value={eCat} onChange={e=>setECat(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                <option value="">Select…</option>
+                {["Stock","Utilities","Equipment","Rent","Marketing","Other"].map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <Input label="Invoice / Ref #" value={eRef} onChange={e=>setERef(e.target.value)} placeholder="Optional"/>
+          </div>
+        </div>
+
+        <div style={{display:"flex",gap:10}}>
+          <Btn onClick={save} disabled={saving||!eDesc||!eAmt} style={{flex:1}} size="lg">{saving?"Saving…":"Save Expense"}</Btn>
+          <Btn variant="secondary" onClick={onClose} style={{flex:1}} size="lg">Cancel</Btn>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ── LOYALTY CUSTOMER LOOKUP MODAL ─────────────────────────────────────────────
+function LoyaltyLookupModal({business, onSelect, onClose}) {
+  const {data:customers,refresh} = useData("bb_customers")
+  const [search,setSearch] = useState("")
+  const [adding,setAdding] = useState(false)
+  const [newName,setNewName] = useState("")
+  const [newPhone,setNewPhone] = useState("")
+  const [saving,setSaving]   = useState(false)
+
+  const filtered = customers.filter(c=>
+    !search || (c.name||"").toLowerCase().includes(search.toLowerCase()) || (c.phone||"").includes(search)
+  )
+
+  const addNew = async () => {
+    if(!newName.trim()) return
+    setSaving(true)
+    const {data} = await supabase.from("bb_customers").insert({
+      id:uid(), business_id:business.id,
+      name:newName.trim(), phone:newPhone, loyalty_points:0, total_visits:0, total_spent:0
+    }).select().single()
+    await refresh()
+    setSaving(false)
+    if(data) onSelect(data)
+    onClose()
+  }
+
+  return (
+    <Modal title="Loyalty — Find Customer" subtitle="Search by name or phone number" onClose={onClose} width={480}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or phone…" autoFocus
+          style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"12px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+
+        <div style={{maxHeight:280,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+          {filtered.slice(0,8).map(c=>(
+            <div key={c.id} onClick={()=>{onSelect(c);onClose()}}
+              style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:C.faint,borderRadius:10,cursor:"pointer",border:`1px solid ${C.border}`,transition:"all 0.1s"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.primary;e.currentTarget.style.background=C.primaryPale}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.faint}}>
+              <div style={{width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${C.primary},${C.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff",flexShrink:0}}>
+                {c.name?.slice(0,2).toUpperCase()}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.black}}>{c.name}</div>
+                <div style={{fontSize:12,color:C.muted}}>{c.phone||"No phone"} · {c.loyalty_points||0} pts · {c.total_visits||0} visits</div>
+              </div>
+              <div style={{fontSize:15,fontWeight:800,color:C.amber}}>{c.loyalty_points||0}pts</div>
+            </div>
+          ))}
+          {filtered.length===0&&search&&(
+            <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:14}}>No customer found for "{search}"</div>
+          )}
+        </div>
+
+        {!adding?(
+          <button onClick={()=>setAdding(true)} style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:10,color:C.primary,cursor:"pointer",padding:"10px 16px",fontSize:14,fontFamily:"Inter,sans-serif",fontWeight:600}}>
+            + Add New Customer
+          </button>
+        ):(
+          <div style={{background:C.faint,borderRadius:10,padding:14,display:"flex",flexDirection:"column",gap:10}}>
+            <Input label="Customer Name" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Full name" required/>
+            <Input label="Phone (optional)" value={newPhone} onChange={e=>setNewPhone(e.target.value)} placeholder="071 234 5678"/>
+            <div style={{display:"flex",gap:8}}>
+              <Btn onClick={addNew} disabled={saving||!newName.trim()} style={{flex:1}}>{saving?"Saving…":"Add & Select"}</Btn>
+              <Btn variant="secondary" onClick={()=>setAdding(false)} style={{flex:1}}>Cancel</Btn>
+            </div>
+          </div>
+        )}
+
+        <Btn variant="ghost" onClick={onClose}>Skip — No Loyalty</Btn>
+      </div>
+    </Modal>
   )
 }
 
