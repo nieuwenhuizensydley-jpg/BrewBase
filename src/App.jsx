@@ -49,6 +49,37 @@ const COLORS = {
 const C = COLORS
 
 // ── Utility ──────────────────────────────────────────────────────────────────
+// ── Afrikaans translations ────────────────────────────────────────────────────
+const LANG = {
+  en: {
+    dashboard:"Dashboard", pos:"Point of Sale", orders:"Orders", shifts:"Shifts",
+    menu:"Menu", inventory:"Inventory", staff:"Staff", accounting:"Accounting",
+    reports:"Reports", customers:"Customers", printer:"Printer", franchise:"Franchise",
+    owner:"Owner View", waste:"Waste Log", purchase_orders:"Purchase Orders",
+    invoices:"Invoices", bank_recon:"Bank Recon", settings:"Settings",
+    logout:"Log Out", save:"Save", cancel:"Cancel", edit:"Edit", delete:"Delete",
+    add:"Add", search:"Search", total:"Total", subtotal:"Subtotal",
+    charge:"Charge", clear:"Clear", confirm:"Confirm", loading:"Loading…",
+    noItems:"No items", selectStaff:"Select your name to clock in",
+    emptyTicket:"Empty ticket", tapItems:"Tap items on the left to add them",
+    saleComplete:"Sale Complete!", changedue:"Change due",
+  },
+  af: {
+    dashboard:"Paneelbord", pos:"Verkooppunt", orders:"Bestellings", shifts:"Skofte",
+    menu:"Spyskaart", inventory:"Voorraad", staff:"Personeel", accounting:"Rekeningkunde",
+    reports:"Verslae", customers:"Kliënte", printer:"Drukker", franchise:"Franchise",
+    owner:"Eienaar Oorsig", waste:"Vermorsingslog", purchase_orders:"Aankooporders",
+    invoices:"Fakture", bank_recon:"Bankrekonsiliasie", settings:"Instellings",
+    logout:"Teken Uit", save:"Stoor", cancel:"Kanselleer", edit:"Redigeer", delete:"Verwyder",
+    add:"Voeg by", search:"Soek", total:"Totaal", subtotal:"Subtotaal",
+    charge:"Hef", clear:"Maak skoon", confirm:"Bevestig", loading:"Laai…",
+    noItems:"Geen items", selectStaff:"Kies jou naam om in te teken",
+    emptyTicket:"Leë kaartjie", tapItems:"Tik op items aan die linkerkant om by te voeg",
+    saleComplete:"Verkoop Voltooi!", changedue:"Wisselgeld verskuldig",
+  }
+}
+let _lang = localStorage.getItem("bb_lang")||"en"
+const t = (key) => LANG[_lang]?.[key]||LANG.en[key]||key
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
 
 // ── Error Boundary ──────────────────────────────────────────────────────────
@@ -676,24 +707,24 @@ function StaffLogin({business, onLogin}) {
 // APP SHELL
 // ══════════════════════════════════════════════════════════════════════════════
 const NAV_ITEMS = [
-  {id:"dashboard", icon:"📊", label:"Dashboard",    roles:["owner","manager","barista","cashier"]},
-  {id:"pos",       icon:"🛒", label:"Point of Sale", roles:["owner","manager","barista","cashier"]},
-  {id:"orders",    icon:"📋", label:"Orders",        roles:["owner","manager"]},
-  {id:"shifts",    icon:"🕐", label:"Shifts",        roles:["owner","manager","barista","cashier"]},
-  {id:"menu",      icon:"☕", label:"Menu",          roles:["owner","manager"]},
-  {id:"inventory", icon:"📦", label:"Inventory",     roles:["owner","manager"]},
-  {id:"staff",     icon:"👥", label:"Staff",         roles:["owner","manager"]},
-  {id:"accounting",icon:"💰", label:"Accounting",    roles:["owner","manager"]},
-  {id:"reports",   icon:"📈", label:"Reports",       roles:["owner","manager"]},
-  {id:"customers", icon:"🎯", label:"Customers",     roles:["owner","manager"]},
-  {id:"printer",       icon:"🖨️", label:"Printer",       roles:["owner","manager"]},
-  {id:"franchise",     icon:"🏢", label:"Franchise",     roles:["owner"]},
-  {id:"owner",         icon:"📱", label:"Owner View",    roles:["owner"]},
-  {id:"waste",         icon:"🗑️", label:"Waste Log",     roles:["owner","manager"]},
-  {id:"purchase_orders",icon:"📬",label:"Purchase Orders",roles:["owner","manager"]},
-  {id:"invoices",      icon:"🧾", label:"Invoices",      roles:["owner","manager"]},
-  {id:"bank_recon",    icon:"🏦", label:"Bank Recon",    roles:["owner","manager"]},
-  {id:"settings",      icon:"⚙️", label:"Settings",      roles:["owner","manager"]},
+  {id:"dashboard",      icon:"📊", label:()=>t("dashboard"),       roles:["owner","manager","barista","cashier"]},
+  {id:"pos",            icon:"🛒", label:()=>t("pos"),             roles:["owner","manager","barista","cashier"]},
+  {id:"orders",         icon:"📋", label:()=>t("orders"),          roles:["owner","manager"]},
+  {id:"shifts",         icon:"🕐", label:()=>t("shifts"),          roles:["owner","manager","barista","cashier"]},
+  {id:"menu",           icon:"☕", label:()=>t("menu"),            roles:["owner","manager"]},
+  {id:"inventory",      icon:"📦", label:()=>t("inventory"),       roles:["owner","manager"]},
+  {id:"staff",          icon:"👥", label:()=>t("staff"),           roles:["owner","manager"]},
+  {id:"accounting",     icon:"💰", label:()=>t("accounting"),      roles:["owner","manager"]},
+  {id:"reports",        icon:"📈", label:()=>t("reports"),         roles:["owner","manager"]},
+  {id:"customers",      icon:"🎯", label:()=>t("customers"),       roles:["owner","manager"]},
+  {id:"printer",        icon:"🖨️", label:()=>t("printer"),         roles:["owner","manager"]},
+  {id:"franchise",      icon:"🏢", label:()=>t("franchise"),       roles:["owner"]},
+  {id:"owner",          icon:"📱", label:()=>t("owner"),           roles:["owner"]},
+  {id:"waste",          icon:"🗑️", label:()=>t("waste"),           roles:["owner","manager"]},
+  {id:"purchase_orders",icon:"📬", label:()=>t("purchase_orders"), roles:["owner","manager"]},
+  {id:"invoices",       icon:"🧾", label:()=>t("invoices"),        roles:["owner","manager"]},
+  {id:"bank_recon",     icon:"🏦", label:()=>t("bank_recon"),      roles:["owner","manager"]},
+  {id:"settings",       icon:"⚙️", label:()=>t("settings"),        roles:["owner","manager"]},
 ]
 
 function AppShell({business, staff, onLogout}) {
@@ -836,7 +867,7 @@ function AppShell({business, staff, onLogout}) {
           display:"flex",alignItems:"center",gap:16,flexShrink:0,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
           <div style={{flex:1}}>
             <div style={{fontSize:18,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>
-              {currentMod?.label}
+              {typeof currentMod?.label==="function"?currentMod.label():currentMod?.label}
             </div>
           </div>
           <div style={{fontSize:13,color:C.muted}}>
@@ -1014,8 +1045,9 @@ function POSModule() {
   const business = useBusiness()
   const staff = useStaff()
   const { data: categories } = useData("bb_categories", { active: true })
-  const { data: menuItems } = useData("bb_menu_items", { active: true })
-  const { data: modGroups } = useData("bb_modifier_groups")
+  const { data: menuItems }  = useData("bb_menu_items", { active: true })
+  const { data: combos }     = useData("bb_combos")
+  const { data: modGroups }  = useData("bb_modifier_groups")
   const { data: modOptions } = useData("bb_modifier_options")
   const [itemModLinks, setItemModLinks] = useState([])
   // Load modifier links separately — useData RLS may not catch junction tables
@@ -1069,8 +1101,13 @@ function POSModule() {
   const {data:loyaltyRules} = useData("bb_loyalty_rules")
   const {data:shifts} = useData("bb_shifts")
 
+  // Combine menu items + combos
+  const allItems = [
+    ...menuItems,
+    ...combos.map(c=>({...c, isCombo:true, emoji:"🎁", category_id:"combo", active:true}))
+  ]
   // Filter menu items (including time-of-day availability)
-  const filtered = menuItems.filter(item => {
+  const filtered = allItems.filter(item => {
     const catMatch = activeCat === "all" || item.category_id === activeCat
     const searchMatch = !search || item.name.toLowerCase().includes(search.toLowerCase())
     // Time availability check
@@ -1346,7 +1383,7 @@ function POSModule() {
             />
           </div>
           <div style={{ display: "flex", gap: 6, padding: "10px 16px", overflowX: "auto", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-            {[{ id: "all", name: "All Items" }, ...categories].map(cat => (
+            {[{ id: "all", name: "All Items" }, ...categories, ...(combos.length>0?[{id:"combo",name:"🎁 Combos",emoji:""}]:[])].map(cat => (
               <button key={cat.id} onClick={() => setActiveCat(cat.id)}
                 style={{ padding: "8px 16px", borderRadius: 20, border: "none", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "Inter,sans-serif", fontWeight: 600, fontSize: 13, flexShrink: 0, transition: "all 0.15s", background: activeCat === cat.id ? C.primary : C.faint, color: activeCat === cat.id ? "#fff" : C.muted }}>
                 {cat.emoji && cat.id !== "all" ? `${cat.emoji} ` : ""}{cat.name}
@@ -1921,6 +1958,7 @@ function MenuModule() {
   const {data:items,  refresh:refreshItems} = useData("bb_menu_items")
   const {data:groups, refresh:refreshGroups}= useData("bb_modifier_groups")
   const {data:options,refresh:refreshOpts}  = useData("bb_modifier_options")
+  const {data:combos, refresh:refreshCombos}= useData("bb_combos")
   const [links, setLinks] = useState([])
   const refreshLinks = async () => {
     const {data} = await supabase.from("bb_item_modifiers").select("*").eq("business_id", business?.id)
@@ -2028,7 +2066,7 @@ function MenuModule() {
   return (
     <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
-        {[["items","☕ Menu Items"],["categories","📂 Categories"],["modifiers","🔧 Modifier Groups"]].map(([id,label])=>(
+        {[["items","☕ Menu Items"],["categories","📂 Categories"],["modifiers","🔧 Modifier Groups"],["combos","🎁 Combos"]].map(([id,label])=>(
           <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 18px",border:"none",background:"transparent",cursor:"pointer",fontSize:14,fontWeight:tab===id?700:400,color:tab===id?C.primary:C.muted,borderBottom:`2px solid ${tab===id?C.primary:"transparent"}`,fontFamily:"Inter,sans-serif",marginBottom:-1}}>
             {label}
           </button>
@@ -2140,6 +2178,72 @@ function MenuModule() {
           }
         </>
       )}
+
+      {tab==="combos"&&(()=>{
+        const [comboModal,setComboModal_] = useState(false)
+        const [cName,setCName_]           = useState("")
+        const [cPrice,setCPrice_]         = useState("")
+        const [cDesc,setCDesc_]           = useState("")
+        const [cItems,setCItems_]         = useState([{item_id:"",qty:1}])
+        const [savingC,setSavingC_]       = useState(false)
+        const openNewCombo = () => { setCName_(""); setCPrice_(""); setCDesc_(""); setCItems_([{item_id:"",qty:1}]); setComboModal_(true) }
+        const saveCombo = async () => {
+          if(!cName_.trim()||!cPrice_) return
+          setSavingC_(true)
+          const comboId = uid()
+          await supabase.from("bb_combos").insert({id:comboId,business_id:business.id,name:cName_.trim(),price:parseFloat(cPrice_)||0,description:cDesc_,active:true})
+          const validItems = cItems_.filter(i=>i.item_id)
+          if(validItems.length>0) await supabase.from("bb_combo_items").insert(validItems.map(i=>({id:uid(),combo_id:comboId,item_id:i.item_id,qty:i.qty||1})))
+          await refreshCombos(); setSavingC_(false); setComboModal_(false)
+        }
+        const deleteCombo = async (id) => { if(!confirm("Delete this combo?")) return; await supabase.from("bb_combos").delete().eq("id",id); await refreshCombos() }
+        return(<>
+          <div style={{display:"flex",justifyContent:"flex-end"}}><Btn onClick={openNewCombo} size="sm">+ Add Combo</Btn></div>
+          {combos.length===0
+            ? <Empty icon="🎁" title="No combos yet" message='Create bundles like "Breaky + Coffee = R85"' action={<Btn onClick={openNewCombo}>+ Add Combo</Btn>}/>
+            : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
+                {combos.map(combo=>(
+                  <div key={combo.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
+                    <div style={{fontSize:16,fontWeight:700,color:C.black,marginBottom:4}}>🎁 {combo.name}</div>
+                    {combo.description&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>{combo.description}</div>}
+                    <div style={{fontSize:20,fontWeight:800,color:C.primary,marginBottom:12}}>{fmt(combo.price)}</div>
+                    <Btn variant="danger" size="sm" onClick={()=>deleteCombo(combo.id)}>🗑 Delete</Btn>
+                  </div>
+                ))}
+              </div>
+          }
+          {comboModal_&&(
+            <Modal title="New Combo / Bundle" onClose={()=>setComboModal_(false)} width={480}>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <Input label="Combo Name" value={cName_} onChange={e=>setCName_(e.target.value)} placeholder='e.g. Breaky Special, Coffee + Muffin'/>
+                <Input label="Bundle Price (R)" type="number" value={cPrice_} onChange={e=>setCPrice_(e.target.value)} placeholder="e.g. 85.00"/>
+                <Input label="Description (optional)" value={cDesc_} onChange={e=>setCDesc_(e.target.value)} placeholder="What's included"/>
+                <div>
+                  <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:8}}>Included Items (optional)</label>
+                  {cItems_.map((ci,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                      <select value={ci.item_id} onChange={e=>setCItems_(prev=>prev.map((x,j)=>j===i?{...x,item_id:e.target.value}:x))}
+                        style={{flex:1,background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 12px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                        <option value="">Select item…</option>
+                        {items.map(it=><option key={it.id} value={it.id}>{it.name} — {fmt(it.price)}</option>)}
+                      </select>
+                      <input type="number" min="1" value={ci.qty} onChange={e=>setCItems_(prev=>prev.map((x,j)=>j===i?{...x,qty:e.target.value}:x))}
+                        style={{width:60,background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"9px 10px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                      <button onClick={()=>setCItems_(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:18}}>×</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>setCItems_(prev=>[...prev,{item_id:"",qty:1}])}
+                    style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:8,color:C.primary,cursor:"pointer",padding:"7px 14px",fontSize:13,fontFamily:"Inter,sans-serif",width:"100%"}}>+ Add Item</button>
+                </div>
+                <div style={{display:"flex",gap:10}}>
+                  <Btn onClick={saveCombo} disabled={savingC_||!cName_.trim()||!cPrice_} style={{flex:1}} size="lg">{savingC_?"Saving…":"Create Combo"}</Btn>
+                  <Btn variant="secondary" onClick={()=>setComboModal_(false)} style={{flex:1}} size="lg">Cancel</Btn>
+                </div>
+              </div>
+            </Modal>
+          )}
+        </>)
+      })()}
 
       {catModal&&(
         <Modal title={editCat?"Edit Category":"New Category"} onClose={()=>setCatModal(false)} width={400}>
@@ -3003,6 +3107,14 @@ function SettingsModule({onLogout}) {
   const [pinError,setPinError]= useState("")
   const [pinSaved,setPinSaved]= useState(false)
 
+  const [uiLang, setUiLang] = useState(()=>localStorage.getItem("bb_lang")||"en")
+  const changeLang = (lang) => {
+    localStorage.setItem("bb_lang", lang)
+    setUiLang(lang)
+    _lang = lang
+    window.location.reload()
+  }
+
   const saveBusiness = async () => {
     setSaving(true)
     await supabase.from("bb_businesses").update({name:bName,email:bEmail,phone:bPhone,address:bAddress,vat_registered:bVat,vat_number:bVatNum,currency_symbol:bCurrency,receipt_footer:bFooter}).eq("id",business.id)
@@ -3037,6 +3149,18 @@ function SettingsModule({onLogout}) {
           <Input label="Currency Symbol" value={bCurrency} onChange={e=>setBCurrency(e.target.value)} placeholder="R"/>
           <Toggle value={bVat} onChange={setBVat} label="VAT Registered"/>
           {bVat&&<Input label="VAT Number" value={bVatNum} onChange={e=>setBVatNum(e.target.value)} placeholder="4123456789"/>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <label style={{fontSize:13,color:C.muted,fontWeight:500}}>App Language / Taal</label>
+            <div style={{display:"flex",gap:8}}>
+              {[["en","🇬🇧 English"],["af","🇿🇦 Afrikaans"]].map(([code,label])=>(
+                <button key={code} onClick={()=>changeLang(code)}
+                  style={{flex:1,padding:"10px 14px",borderRadius:8,border:`1px solid ${uiLang===code?C.primary:C.border}`,background:uiLang===code?C.primaryPale:C.faint,color:uiLang===code?C.primary:C.muted,cursor:"pointer",fontSize:14,fontWeight:uiLang===code?700:400,fontFamily:"Inter,sans-serif"}}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div style={{fontSize:12,color:C.muted}}>Changing language will reload the app</div>
+          </div>
           <Btn onClick={saveBusiness} disabled={saving} style={{alignSelf:"flex-start"}} size="lg">{saving?"Saving…":saved?"✓ Saved!":"Save Changes"}</Btn>
         </div>
       )}
@@ -3109,6 +3233,7 @@ function ShiftsModule() {
   // Close shift form
   const [cashCounted,setCashCounted]   = useState("")
   const [cardTotal,setCardTotal]       = useState("")
+  const [cardTerminals,setCardTerminals] = useState([{name:"Main Terminal",amount:""}])
   const [eftTotal,setEftTotal]         = useState("")
   const [shiftNotes,setShiftNotes]     = useState("")
 
@@ -3160,7 +3285,8 @@ function ShiftsModule() {
       closed_by:    currentStaff?.id,
       closed_at:    new Date().toISOString(),
       cash_counted: parseFloat(cashCounted)||0,
-      card_total:   parseFloat(cardTotal)||0,
+      card_total:   cardTerminals.reduce((s,t)=>s+(parseFloat(t.amount)||0),0),
+      card_terminals: JSON.stringify(cardTerminals),
       eft_total:    parseFloat(eftTotal)||0,
       system_cash:  totals.cash,
       system_card:  totals.card,
@@ -3172,7 +3298,7 @@ function ShiftsModule() {
     await refreshShifts()
     setSaving(false)
     setCloseModal(false)
-    setCashCounted(""); setCardTotal(""); setEftTotal(""); setShiftNotes("")
+    setCashCounted(""); setCardTotal(""); setCardTerminals([{name:"Main Terminal",amount:""}]); setEftTotal(""); setShiftNotes("")
     // Show report after closing
     const {data:closedShift} = await supabase.from("bb_shifts").select("*").eq("id",openShift.id).single()
     if(closedShift) setReportModal(closedShift)
@@ -3435,7 +3561,23 @@ function ShiftsModule() {
                     {Math.abs(variance)<0.01?"✓ Cash balances perfectly":variance>0?`↑ Over by ${fmt(variance)}`:`↓ Short by ${fmt(Math.abs(variance))}`}
                   </div>
                 )}
-                <Input label="Card Machine Total (R)" type="number" value={cardTotal} onChange={e=>setCardTotal(e.target.value)} placeholder="Total from card machine" hint="Check your card machine's day total"/>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Card Machine Totals</label>
+                  {cardTerminals.map((term,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <input value={term.name} onChange={e=>setCardTerminals(prev=>prev.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder={`Terminal ${i+1} name`}
+                        style={{flex:1,background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                      <input type="number" value={term.amount} onChange={e=>setCardTerminals(prev=>prev.map((x,j)=>j===i?{...x,amount:e.target.value}:x))} placeholder="R0.00"
+                        style={{width:110,background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                      {cardTerminals.length>1&&<button onClick={()=>setCardTerminals(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:18}}>×</button>}
+                    </div>
+                  ))}
+                  <button onClick={()=>setCardTerminals(prev=>[...prev,{name:"",amount:""}])}
+                    style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:8,color:C.primary,cursor:"pointer",padding:"8px 14px",fontSize:13,fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                    + Add Terminal
+                  </button>
+                  <div style={{fontSize:13,color:C.primary,fontWeight:600}}>Combined: {fmt(cardTerminals.reduce((s,t)=>s+(parseFloat(t.amount)||0),0))}</div>
+                </div>
                 <Input label="EFT Total (R)" type="number" value={eftTotal} onChange={e=>setEftTotal(e.target.value)} placeholder="Total EFT received"/>
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Shift Notes (optional)</label>
