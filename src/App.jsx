@@ -744,6 +744,7 @@ function AppShell({business, staff, onLogout}) {
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pinPromptDone, setPinPromptDone] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   return (
     <div style={{display:"flex",height:"100vh",background:C.bg,overflow:"hidden",fontFamily:"Inter,sans-serif"}}>
@@ -765,15 +766,19 @@ function AppShell({business, staff, onLogout}) {
           className="mobile-backdrop"/>
       )}
 
-      {/* ── SIDEBAR (persistent on tablet, slide-out on phone) ── */}
+      {/* ── SIDEBAR ── */}
       <div style={{
-        width:220,flexShrink:0,background:C.sidebar,
+        width:sidebarCollapsed?56:220,flexShrink:0,background:C.sidebar,
         display:"flex",flexDirection:"column",overflow:"hidden",
-        borderRight:`1px solid rgba(255,255,255,.06)`
+        borderRight:`1px solid rgba(255,255,255,.06)`,transition:"width 0.2s ease"
       }}>
-        {/* Logo */}
-        <div style={{padding:"22px 18px 16px",borderBottom:"1px solid rgba(255,255,255,.08)"}}>
-          <BrewBaseLogo size={32} light={true}/>
+        {/* Logo + collapse */}
+        <div style={{padding:"16px 12px",borderBottom:"1px solid rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          {!sidebarCollapsed&&<BrewBaseLogo size={28} light={true}/>}
+          {sidebarCollapsed&&<img src={LOGO_SM} alt="B" style={{width:32,height:32,objectFit:"contain",flexShrink:0}}/>}
+          <button onClick={()=>setSidebarCollapsed(c=>!c)} style={{background:"rgba(255,255,255,.08)",border:"none",borderRadius:6,color:"rgba(255,255,255,.5)",cursor:"pointer",padding:"6px 8px",fontSize:14,lineHeight:1,flexShrink:0}}>
+            {sidebarCollapsed?"→":"←"}
+          </button>
         </div>
 
         {/* Staff avatar */}
@@ -794,14 +799,15 @@ function AppShell({business, staff, onLogout}) {
             const isA = active===item.id
             return (
               <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false); }}
-                style={{display:"flex",alignItems:"center",gap:10,padding:"11px 10px",borderRadius:8,
-                  border:"none",cursor:"pointer",textAlign:"left",width:"100%",
+                title={sidebarCollapsed?item.label:""}
+                style={{display:"flex",alignItems:"center",gap:10,padding:sidebarCollapsed?"11px 0":"11px 10px",borderRadius:8,
+                  border:"none",cursor:"pointer",textAlign:"left",width:"100%",justifyContent:sidebarCollapsed?"center":"flex-start",
                   background:isA?"rgba(74,124,89,.25)":"transparent",
                   color:isA?"#fff":"rgba(255,255,255,.45)",
                   transition:"all 0.15s"}}>
                 <span style={{fontSize:17,opacity:isA?1:0.7,flexShrink:0}}>{item.icon}</span>
-                <span style={{fontSize:13,fontWeight:isA?600:400}}>{item.label}</span>
-                {isA&&<div style={{width:3,height:20,borderRadius:2,background:C.primary,marginLeft:"auto"}}/>}
+                {!sidebarCollapsed&&<span style={{fontSize:13,fontWeight:isA?600:400}}>{item.label}</span>}
+                {!sidebarCollapsed&&isA&&<div style={{width:3,height:20,borderRadius:2,background:C.primary,marginLeft:"auto"}}/>}
               </button>
             )
           })}
@@ -809,13 +815,16 @@ function AppShell({business, staff, onLogout}) {
 
         {/* Bottom: business info + logout */}
         <div style={{padding:"12px 8px",borderTop:"1px solid rgba(255,255,255,.08)",display:"flex",flexDirection:"column",gap:6}}>
-          <div style={{padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,.05)"}}>
-            <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,.7)",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{business?.name}</div>
-            <span style={{fontSize:10,background:C.primary,color:"#fff",padding:"2px 7px",borderRadius:10,fontWeight:600,textTransform:"uppercase"}}>{business?.plan_id||"FREE"}</span>
-          </div>
-          <button onClick={onLogout} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:8,
+          {!sidebarCollapsed&&(
+            <div style={{padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,.05)"}}>
+              <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,.7)",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{business?.name}</div>
+              <span style={{fontSize:10,background:C.primary,color:"#fff",padding:"2px 7px",borderRadius:10,fontWeight:600,textTransform:"uppercase"}}>{business?.plan_id||"FREE"}</span>
+            </div>
+          )}
+          <button onClick={onLogout} title="Log Out"
+            style={{display:"flex",alignItems:"center",justifyContent:sidebarCollapsed?"center":"flex-start",gap:8,padding:"9px 10px",borderRadius:8,
             border:"none",cursor:"pointer",background:"rgba(214,69,69,.15)",color:"rgba(214,69,69,.8)",width:"100%",fontSize:13,fontWeight:500}}>
-            <span>↪</span> Log Out
+            <span>↪</span>{!sidebarCollapsed&&" Log Out"}
           </button>
         </div>
       </div>
@@ -1008,7 +1017,15 @@ function POSModule() {
   const { data: menuItems } = useData("bb_menu_items", { active: true })
   const { data: modGroups } = useData("bb_modifier_groups")
   const { data: modOptions } = useData("bb_modifier_options")
-  const { data: itemModLinks } = useData("bb_item_modifiers")
+  const [itemModLinks, setItemModLinks] = useState([])
+  // Load modifier links separately — useData RLS may not catch junction tables
+  useEffect(()=>{
+    const loadLinks = async () => {
+      const {data} = await supabase.from("bb_item_modifiers").select("*").eq("business_id", business?.id)
+      if(data) setItemModLinks(data)
+    }
+    if(business?.id) loadLinks()
+  },[business?.id, menuItems.length])
   const { data: openTabs, refresh: refreshTabs } = useData("bb_open_tabs")
 
   const [activeCat, setActiveCat] = useState("all")
@@ -1282,10 +1299,35 @@ function POSModule() {
     await refreshTabs()
   }
 
+  const doPrintBill = async () => {
+    setOptMenuOpen(false)
+    if(!BB_PRINTER.connected){ alert("Connect printer in Printer settings first"); return }
+    if(!cart.length){ alert("No items on ticket"); return }
+    try {
+      const draftOrder = {id:"DRAFT",date:todayISO(),time:nowTime(),staff_name:staff?.name,order_type:orderType,table_num:tableNum||null,method:"—",subtotal,discount_pct:discountType==="percent"?discountPct:0,discount_amt:discAmt,tip:tipAmt,total}
+      const draftItems = JSON.stringify(cart.map(i=>({name:i.name,qty:i.qty,price:i.price,selections:i.selections,notes:i.notes})))
+      const bytes = buildReceiptBytes(draftOrder, draftItems, {...getReceiptSettings(),showTipLine:true,showTotalLine:true})
+      await BB_PRINTER.print(bytes)
+    } catch(e){ alert("Print failed: "+e.message) }
+  }
+
+  const doReprintLast = async () => {
+    setOptMenuOpen(false)
+    if(!BB_PRINTER.connected){ alert("Connect printer in Printer settings first"); return }
+    if(!lastOrder){ alert("No recent order to reprint"); return }
+    try {
+      const bytes = buildReceiptBytes(lastOrder, lastOrder.items, getReceiptSettings())
+      await BB_PRINTER.print(bytes)
+    } catch(e){ alert("Print failed: "+e.message) }
+  }
+
   const optMenuItems = [
-    { icon: "🗑", label: "Clear ticket", action: () => { resetOrder(); setOptMenuOpen(false) } },
-    { icon: "📑", label: "Open tabs", action: () => { setTabsOpen(true); setOptMenuOpen(false) } },
-    { icon: "✂️", label: "Save for later", action: () => { setTabsOpen(true); setOptMenuOpen(false) } },
+    { icon: "🗑", label: "Clear ticket",    action: () => { resetOrder(); setOptMenuOpen(false) } },
+    { icon: "📑", label: "Open tabs",       action: () => { setTabsOpen(true); setOptMenuOpen(false) } },
+    { icon: "✂️", label: "Save for later",  action: () => { setTabsOpen(true); setOptMenuOpen(false) } },
+    { icon: "🖨", label: "Print bill",      action: doPrintBill },
+    { icon: "🔁", label: "Reprint last",    action: doReprintLast },
+    { icon: "🎯", label: "Link customer",   action: () => { setLoyaltyModal(true); setOptMenuOpen(false) } },
   ]
 
   const itemPreviewPrice = selItem ? parseFloat(selItem.price) + computeExtra() : 0
@@ -1879,7 +1921,12 @@ function MenuModule() {
   const {data:items,  refresh:refreshItems} = useData("bb_menu_items")
   const {data:groups, refresh:refreshGroups}= useData("bb_modifier_groups")
   const {data:options,refresh:refreshOpts}  = useData("bb_modifier_options")
-  const {data:links,  refresh:refreshLinks} = useData("bb_item_modifiers")
+  const [links, setLinks] = useState([])
+  const refreshLinks = async () => {
+    const {data} = await supabase.from("bb_item_modifiers").select("*").eq("business_id", business?.id)
+    if(data) setLinks(data)
+  }
+  useEffect(()=>{ if(business?.id) refreshLinks() },[business?.id])
 
   const [tab,setTab]           = useState("items")
   const [catModal,setCatModal] = useState(false)
@@ -5278,8 +5325,46 @@ function PayFastBillingSection({business}) {
     form.submit()
   }
 
+  const [promoCode,setPromoCode] = useState("")
+  const [promoMsg,setPromoMsg]   = useState("")
+  const [promoWorking,setPromoWorking] = useState(false)
+
+  const PROMO_CODES = {
+    "BREWBASE-PRO":   "pro",
+    "RUAHBREW-PRO":   "pro",
+    "SYDLEY-PRO":     "pro",
+    "BREWBASE-ENT":   "enterprise",
+    "BETA-ACCESS":    "pro",
+  }
+
+  const applyPromo = async () => {
+    setPromoMsg("")
+    const code = promoCode.trim().toUpperCase()
+    const plan = PROMO_CODES[code]
+    if(!plan){ setPromoMsg("Invalid code — please check and try again"); return }
+    setPromoWorking(true)
+    await supabase.from("bb_businesses").update({
+      plan_id: plan,
+      trial_ends_at: new Date(Date.now()+365*24*60*60*1000).toISOString()
+    }).eq("id",business.id)
+    setPromoWorking(false)
+    setPromoMsg(`✓ Code applied! Your account is now on the ${plan.toUpperCase()} plan.`)
+    setTimeout(()=>window.location.reload(),1500)
+  }
+
   return (
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {/* Promo code */}
+      <div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+        <div style={{fontSize:14,fontWeight:700,color:C.black,marginBottom:8}}>Have a promo or access code?</div>
+        <div style={{display:"flex",gap:8}}>
+          <input value={promoCode} onChange={e=>setPromoCode(e.target.value.toUpperCase())} placeholder="Enter code e.g. BREWBASE-PRO"
+            style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+          <Btn onClick={applyPromo} disabled={promoWorking||!promoCode.trim()}>{promoWorking?"Applying…":"Apply"}</Btn>
+        </div>
+        {promoMsg&&<div style={{fontSize:13,marginTop:8,color:promoMsg.startsWith("✓")?C.primary:C.red,fontWeight:600}}>{promoMsg}</div>}
+      </div>
+
       <div style={{background:C.primaryPale,border:`1px solid ${C.primary}30`,borderRadius:14,padding:20}}>
         <div style={{fontSize:16,fontWeight:700,color:C.primary,marginBottom:4}}>
           Current Plan: {(business?.plan_id||"free").toUpperCase()}
