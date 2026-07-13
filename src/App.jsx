@@ -2355,9 +2355,12 @@ function MenuModule() {
                   {groups.map(g=>{
                     const linked=iLinkedGroups.includes(g.id)
                     return(
-                      <div key={g.id} onClick={()=>setILinkedGroups(prev=>linked?prev.filter(x=>x!==g.id):[...prev,g.id])}
-                        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:8,border:`1px solid ${linked?C.primary:C.border}`,background:linked?C.primaryPale:C.faint,cursor:"pointer"}}>
-                        <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${linked?C.primary:C.border}`,background:linked?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <div key={g.id} onClick={()=>setILinkedGroups(prev=>{
+                        const isLinked = prev.includes(g.id)
+                        return isLinked ? prev.filter(x=>x!==g.id) : [...prev, g.id]
+                      })}
+                        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:8,border:`1px solid ${linked?C.primary:C.border}`,background:linked?C.primaryPale:C.faint,cursor:"pointer",transition:"all 0.15s"}}>
+                        <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${linked?C.primary:C.border}`,background:linked?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s"}}>
                           {linked&&<span style={{color:"#fff",fontSize:11}}>✓</span>}
                         </div>
                         <span style={{fontSize:13,fontWeight:linked?600:400,color:linked?C.primary:C.black}}>{g.name}</span>
