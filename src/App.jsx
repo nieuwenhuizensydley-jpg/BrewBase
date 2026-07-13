@@ -144,6 +144,40 @@ function OfflineBanner() {
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
+// ── Plan limits ──────────────────────────────────────────────────────────────
+const PLAN_LIMITS = {
+  free:       { staff:2,       products:50,  features:["pos","shifts","dashboard","settings","printer"] },
+  pro:        { staff:20,      products:999, features:["all"] },
+  enterprise: { staff:999,     products:999, features:["all"] },
+}
+function usePlanLimits() {
+  const business = useBusiness()
+  const plan = business?.plan_id||"free"
+  const limits = PLAN_LIMITS[plan]||PLAN_LIMITS.free
+  const isTrial = business?.trial_ends_at&&new Date(business.trial_ends_at)>new Date()
+  const hasFeature = (feature) => {
+    if(isTrial) return true // full access during trial
+    if(limits.features.includes("all")) return true
+    return limits.features.includes(feature)
+  }
+  return { limits, plan, isTrial, hasFeature }
+}
+
+function PlanGate({feature, children, fallback}) {
+  const { hasFeature, isTrial, plan } = usePlanLimits()
+  if(hasFeature(feature)) return children
+  return fallback || (
+    <div style={{padding:40,textAlign:"center"}}>
+      <div style={{fontSize:48,marginBottom:16}}>🔒</div>
+      <div style={{fontSize:20,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif",marginBottom:8}}>Pro Feature</div>
+      <div style={{fontSize:14,color:C.muted,marginBottom:24,maxWidth:320,margin:"0 auto 24px"}}>
+        This feature requires a Pro or Enterprise plan. You're currently on the <strong>{plan.toUpperCase()}</strong> plan.
+      </div>
+      <div style={{fontSize:13,color:C.muted}}>Go to Settings → Plan & Billing to upgrade, or enter a promo code.</div>
+    </div>
+  )
+}
+
 function useData(table, filter={}, deps=[]) {
   const business = useBusiness()
   const [data,setData]       = useState([])
@@ -758,9 +792,9 @@ function AppShell({business, staff, onLogout}) {
     menu:      <MenuModule/>,
     inventory: <InventoryModule/>,
     staff:     <StaffModule/>,
-    accounting:<AccountingModule/>,
-    reports:   <ReportsModule/>,
-    customers: <CustomersModule/>,
+    accounting:<PlanGate feature="accounting"><AccountingModule/></PlanGate>,
+    reports:   <PlanGate feature="reports"><ReportsModule/></PlanGate>,
+    customers: <PlanGate feature="loyalty"><CustomersModule/></PlanGate>,
     printer:   <PrinterModule/>,
     franchise: <FranchiseModule/>,
     owner:         <OwnerDashboardModule/>,
@@ -873,6 +907,16 @@ function AppShell({business, staff, onLogout}) {
           <div style={{fontSize:13,color:C.muted}}>
             {new Date().toLocaleDateString("en-ZA",{weekday:"short",day:"numeric",month:"short"})}
           </div>
+          {(()=>{
+            const trialEnd = business?.trial_ends_at&&new Date(business.trial_ends_at)
+            const daysLeft = trialEnd?Math.ceil((trialEnd-new Date())/86400000):null
+            if(daysLeft!==null&&daysLeft>0&&daysLeft<=7&&business?.plan_id==="free") return(
+              <div style={{background:C.amberPale,border:`1px solid ${C.amber}40`,borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:700,color:C.amber}}>
+                ⏳ {daysLeft} day{daysLeft!==1?"s":""} left in trial
+              </div>
+            )
+            return null
+          })()}
           <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:20,background:C.greenPale,border:`1px solid ${C.primary}30`}}>
             <div style={{width:7,height:7,borderRadius:"50%",background:C.primary}}/>
             <span style={{fontSize:12,color:C.primary,fontWeight:600}}>Synced</span>
@@ -2611,6 +2655,44 @@ function StaffModule() {
         })}
       </div>
 
+      {/* Staff Hours Report */}
+      {clockins.length>0&&(
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+          <SHead>Hours Worked — This Week</SHead>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{borderBottom:`2px solid ${C.border}`}}>
+                {["Staff","Date","Clocked In","Clocked Out","Hours","Est. Wages"].map(h=>(
+                  <th key={h} style={{padding:"8px 12px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {[...clockins].sort((a,b)=>b.date?.localeCompare(a.date)).slice(0,20).map(ci=>{
+                  const member = staffList.find(s=>s.id===ci.staff_id)
+                  const wages  = (parseFloat(ci.hours||0))*(parseFloat(member?.hourly_rate||0))
+                  return(
+                    <tr key={ci.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:"10px 12px",fontSize:13,fontWeight:600,color:C.black}}>{member?.name||"—"}</td>
+                      <td style={{padding:"10px 12px",fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>{ci.date}</td>
+                      <td style={{padding:"10px 12px",fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>{ci.clocked_in?new Date(ci.clocked_in).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"}):"—"}</td>
+                      <td style={{padding:"10px 12px",fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>{ci.clocked_out?new Date(ci.clocked_out).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"}):<Chip color="primary" size="sm">Active</Chip>}</td>
+                      <td style={{padding:"10px 12px",fontSize:13,fontWeight:700,color:C.black}}>{ci.hours?`${parseFloat(ci.hours).toFixed(1)}h`:"—"}</td>
+                      <td style={{padding:"10px 12px",fontSize:13,fontWeight:600,color:C.primary}}>{wages>0?fmt(wages):"—"}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+            <span style={{fontSize:14,fontWeight:600,color:C.muted}}>Total hours this week</span>
+            <span style={{fontSize:16,fontWeight:800,color:C.primary}}>
+              {clockins.filter(c=>c.date>=new Date(Date.now()-7*86400000).toISOString().slice(0,10)&&c.hours).reduce((s,c)=>s+parseFloat(c.hours||0),0).toFixed(1)}h
+            </span>
+          </div>
+        </div>
+      )}
+
       {modal&&(
         <Modal title={edit?"Edit Staff Member":"Add Staff Member"} onClose={()=>setModal(false)} width={480}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -2911,6 +2993,45 @@ function ReportsModule() {
         <KPI label="Total Orders" value={periodOrders.length} icon="🧾"/>
         <KPI label="Average Order" value={fmt(avg)} icon="📊"/>
         <KPI label="Total Tips" value={fmt(tips)} color={C.amber} icon="🙏"/>
+      </div>
+
+      {/* Tip Split Report */}
+      <div style={{background:C.surface,borderRadius:14,padding:20,border:`1px solid ${C.border}`}}>
+        <SHead>Tip Split — {dateFrom} to {dateTo}</SHead>
+        <div style={{fontSize:13,color:C.muted,marginBottom:14}}>Tips earned per staff member in this period</div>
+        {staffList.length===0?<div style={{color:C.muted,fontSize:13}}>No staff data</div>:(()=>{
+          const tipData = staffList.map(s=>{
+            const sOrders = periodOrders.filter(o=>o.staff_id===s.id||o.staff_name===s.name)
+            const sTips   = sOrders.reduce((t,o)=>t+parseFloat(o.tip||0),0)
+            const sOrders_count = sOrders.filter(o=>parseFloat(o.tip||0)>0).length
+            return {name:s.name, initials:s.initials||s.name?.slice(0,2).toUpperCase(), tips:sTips, ordersWithTips:sOrders_count}
+          }).filter(s=>s.tips>0).sort((a,b)=>b.tips-a.tips)
+          const totalTips = tipData.reduce((s,t)=>s+t.tips,0)
+          if(tipData.length===0) return <div style={{color:C.muted,fontSize:13}}>No tips recorded in this period</div>
+          return(
+            <div>
+              {tipData.map(s=>(
+                <div key={s.name} style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${C.primary},${C.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff",flexShrink:0}}>
+                    {s.initials}
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,fontWeight:600,color:C.black}}>{s.name}</div>
+                    <div style={{fontSize:12,color:C.muted}}>{s.ordersWithTips} order{s.ordersWithTips!==1?"s":""} with tips</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:16,fontWeight:800,color:C.amber}}>{fmt(s.tips)}</div>
+                    <div style={{fontSize:11,color:C.muted}}>{Math.round((s.tips/totalTips)*100)}% of total</div>
+                  </div>
+                </div>
+              ))}
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:800,paddingTop:8}}>
+                <span style={{color:C.black}}>Total Tips</span>
+                <span style={{color:C.amber}}>{fmt(totalTips)}</span>
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
@@ -3711,6 +3832,7 @@ function buildReceiptBytes(order, items, settings={}) {
   // ── TOTALS ──
   const subtotal  = parseFloat(order.subtotal||0)
   const discAmt   = parseFloat(order.discount_amt||0)
+  const vatAmt    = parseFloat(order.vat_amt||0)
   const tip       = parseFloat(order.tip||0)
   const total     = parseFloat(order.total||0)
 
@@ -3718,6 +3840,7 @@ function buildReceiptBytes(order, items, settings={}) {
     add(twoCol("Subtotal", `R${subtotal.toFixed(2)}`))
     add(twoCol(`Discount ${order.discount_pct||0}%`, `-R${discAmt.toFixed(2)}`))
   }
+  if(vatAmt > 0) add(twoCol("VAT (15%)", `R${vatAmt.toFixed(2)}`))
   if(tip > 0) add(twoCol("Tip", `R${tip.toFixed(2)}`))
 
   add(ESC_BOLD_ON)
@@ -4516,7 +4639,7 @@ function LoyaltyLookupModal({business, onSelect, onClose}) {
   const [saving,setSaving]   = useState(false)
 
   const filtered = customers.filter(c=>
-    !search || (c.name||"").toLowerCase().includes(search.toLowerCase()) || (c.phone||"").includes(search)
+    !search || (c.name||"").toLowerCase().includes(search.toLowerCase()) || (c.phone||"").includes(search) || (c.qr_code||"").includes(search.toUpperCase())
   )
 
   const addNew = async () => {
@@ -4535,8 +4658,10 @@ function LoyaltyLookupModal({business, onSelect, onClose}) {
   return (
     <Modal title="Loyalty — Find Customer" subtitle="Search by name or phone number" onClose={onClose} width={480}>
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or phone…" autoFocus
-          style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"12px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+        <div style={{display:"flex",gap:8}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, phone or QR code…" autoFocus
+            style={{flex:1,background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"12px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+        </div>
 
         <div style={{maxHeight:280,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
           {filtered.slice(0,8).map(c=>(
