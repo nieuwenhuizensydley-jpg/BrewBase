@@ -765,7 +765,7 @@ const NAV_ITEMS = [
   {id:"settings",       icon:"⚙️", label:()=>t("settings"),        roles:["owner","manager"]},
 ]
 
-function AppShell({business, staff, onLogout}) {
+function AppShell({business, staff, onLogout, paymentSuccess=false}) {
   const [active,setActive]   = useState("pos")
   const [sidebarOpen,setSidebarOpen] = useState(false)
   const pinTimeoutRef = useRef(null)
@@ -818,6 +818,11 @@ function AppShell({business, staff, onLogout}) {
   return (
     <div style={{display:"flex",height:"100vh",background:C.bg,overflow:"hidden",fontFamily:"Inter,sans-serif"}}>
       <OfflineBanner/>
+      {paymentSuccess&&(
+        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:9999,background:C.primary,color:"#fff",textAlign:"center",padding:"14px 20px",fontSize:14,fontWeight:700,fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          🎉 Payment successful! Your BrewBase Pro plan is now active.
+        </div>
+      )}
       {!pinPromptDone&&<FirstLoginPinPrompt staff={staff} onDone={()=>setPinPromptDone(true)}/>}
       <style>{`
         @keyframes spin { to { transform:rotate(360deg) } }
@@ -5579,10 +5584,13 @@ function OwnerDashboardModule() {
 function PayFastBillingSection({business}) {
   const [loading,setLoading] = useState(false)
 
-  // PayFast sandbox credentials (replace with live when ready)
-  const PAYFAST_MERCHANT_ID  = "10000100"   // replace with your merchant ID
-  const PAYFAST_MERCHANT_KEY = "46f0cd694581a"  // replace with your merchant key
-  const PAYFAST_URL = "https://sandbox.payfast.co.za/eng/process"  // use https://www.payfast.co.za/eng/process in production
+  // PayFast LIVE credentials — set these to your real merchant details
+  const PAYFAST_MERCHANT_ID  = import.meta.env.VITE_PAYFAST_MERCHANT_ID  || "10000100"
+  const PAYFAST_MERCHANT_KEY = import.meta.env.VITE_PAYFAST_MERCHANT_KEY || "46f0cd694581a"
+  const PAYFAST_SANDBOX      = import.meta.env.VITE_PAYFAST_SANDBOX !== "false"
+  const PAYFAST_URL = PAYFAST_SANDBOX
+    ? "https://sandbox.payfast.co.za/eng/process"
+    : "https://www.payfast.co.za/eng/process"
 
   const plans = [
     { id:"pro",   name:"Pro",        amount:"499.00", period:"Monthly", description:"BrewBase Pro Monthly Subscription" },
@@ -5595,12 +5603,14 @@ function PayFastBillingSection({business}) {
     form.method = "POST"
     form.action = PAYFAST_URL
 
+    const pfPassphrase = import.meta.env.VITE_PAYFAST_PASSPHRASE || ""
     const fields = {
       merchant_id:   PAYFAST_MERCHANT_ID,
       merchant_key:  PAYFAST_MERCHANT_KEY,
       return_url:    window.location.origin+"?payment=success",
       cancel_url:    window.location.origin+"?payment=cancel",
-      notify_url:    "https://brewbase.vercel.app/api/payfast-notify", // Vercel serverless webhook
+      notify_url:    `${window.location.origin}/api/payfast-notify`,
+      ...(pfPassphrase ? {passphrase: pfPassphrase} : {}),
       name_first:    business?.name||"",
       email_address: business?.email||"",
       m_payment_id:  business?.id||"",
@@ -5777,6 +5787,17 @@ function AppRoot() {
   const [business,setBusiness]   = useState(null)
   const [staff,setStaff]         = useState(null)
   const [loading,setLoading]     = useState(true)
+  const [paymentSuccess,setPaymentSuccess] = useState(false)
+
+  // Handle PayFast return
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search)
+    if(params.get("payment")==="success"){
+      setPaymentSuccess(true)
+      window.history.replaceState({},"",window.location.pathname)
+      setTimeout(()=>setPaymentSuccess(false),6000)
+    }
+  },[])
 
   useEffect(()=>{
     supabase.auth.getSession().then(async({data:{session}})=>{
@@ -5799,7 +5820,24 @@ function AppRoot() {
 
   const loadBusiness = async(userId) => {
     const {data} = await supabase.from("bb_businesses").select("*").eq("owner_id",userId).single()
-    if(data) setBusiness(data)
+    if(data) {
+      setBusiness(data)
+      // Verify subscription status with server
+      try {
+        const res = await fetch("/api/check-subscription",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({businessId:data.id})
+        })
+        if(res.ok){
+          const sub = await res.json()
+          if(sub.plan && sub.plan!==data.plan_id){
+            const {data:updated} = await supabase.from("bb_businesses").select("*").eq("id",data.id).single()
+            if(updated) setBusiness(updated)
+          }
+        }
+      } catch(e){ /* offline */ }
+    }
   }
 
   if(loading) return (
