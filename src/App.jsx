@@ -46,7 +46,11 @@ const COLORS = {
 }
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
-const C = COLORS
+const C = {
+  ...COLORS,
+  // Extra aliases
+  error: COLORS.red,
+}
 
 // ── Utility ──────────────────────────────────────────────────────────────────
 // ── Afrikaans translations ────────────────────────────────────────────────────
@@ -146,9 +150,9 @@ function OfflineBanner() {
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 // ── Plan limits ──────────────────────────────────────────────────────────────
 const PLAN_LIMITS = {
-  free:       { staff:2,       products:50,  features:["pos","shifts","dashboard","settings","printer"] },
-  pro:        { staff:20,      products:999, features:["all"] },
-  enterprise: { staff:999,     products:999, features:["all"] },
+  free:       { staff:2, products:50,  features:["pos","shifts","dashboard","settings","printer","menu","inventory","staff","orders"] },
+  pro:        { staff:20, products:999, features:["all"] },
+  enterprise: { staff:999, products:999, features:["all"] },
 }
 function usePlanLimits() {
   const business = useBusiness()
@@ -798,10 +802,10 @@ function AppShell({business, staff, onLogout}) {
     printer:   <PrinterModule/>,
     franchise: <FranchiseModule/>,
     owner:         <OwnerDashboardModule/>,
-    waste:         <WasteLogModule/>,
-    purchase_orders:<PurchaseOrdersModule/>,
-    invoices:      <InvoicesModule/>,
-    bank_recon:    <BankReconciliationModule/>,
+    waste:         <PlanGate feature="waste"><WasteLogModule/></PlanGate>,
+    purchase_orders:<PlanGate feature="purchase_orders"><PurchaseOrdersModule/></PlanGate>,
+    invoices:      <PlanGate feature="invoices"><InvoicesModule/></PlanGate>,
+    bank_recon:    <PlanGate feature="bank_recon"><BankReconciliationModule/></PlanGate>,
     settings:      <SettingsModule onLogout={onLogout}/>,
   }
 
@@ -847,15 +851,15 @@ function AppShell({business, staff, onLogout}) {
         </div>
 
         {/* Staff avatar */}
-        <div style={{padding:"14px 16px",borderBottom:"1px solid rgba(255,255,255,.08)",display:"flex",alignItems:"center",gap:10}}>
+        <div style={{padding:"10px 8px",borderBottom:"1px solid rgba(255,255,255,.08)",display:"flex",alignItems:"center",gap:10,justifyContent:sidebarCollapsed?"center":"flex-start"}}>
           <div style={{width:34,height:34,borderRadius:"50%",background:C.primary,
             display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff",flexShrink:0}}>
             {staff?.initials||staff?.name?.slice(0,2).toUpperCase()||"?"}
           </div>
-          <div>
+          {!sidebarCollapsed&&<div>
             <div style={{fontSize:13,fontWeight:600,color:"#fff",lineHeight:1}}>{staff?.name}</div>
             <div style={{fontSize:11,color:"rgba(255,255,255,.4)",textTransform:"capitalize",marginTop:2}}>{staff?.role}</div>
-          </div>
+          </div>}
         </div>
 
         {/* Nav items */}
@@ -864,15 +868,15 @@ function AppShell({business, staff, onLogout}) {
             const isA = active===item.id
             return (
               <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false); }}
-                title={sidebarCollapsed?item.label:""}
+                title={typeof item.label==="function"?item.label():item.label}
                 style={{display:"flex",alignItems:"center",gap:10,padding:sidebarCollapsed?"11px 0":"11px 10px",borderRadius:8,
                   border:"none",cursor:"pointer",textAlign:"left",width:"100%",justifyContent:sidebarCollapsed?"center":"flex-start",
                   background:isA?"rgba(74,124,89,.25)":"transparent",
                   color:isA?"#fff":"rgba(255,255,255,.45)",
                   transition:"all 0.15s"}}>
                 <span style={{fontSize:17,opacity:isA?1:0.7,flexShrink:0}}>{item.icon}</span>
-                {!sidebarCollapsed&&<span style={{fontSize:13,fontWeight:isA?600:400}}>{item.label}</span>}
-                {!sidebarCollapsed&&isA&&<div style={{width:3,height:20,borderRadius:2,background:C.primary,marginLeft:"auto"}}/>}
+                {!sidebarCollapsed&&<span style={{fontSize:13,fontWeight:isA?600:400,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{typeof item.label==="function"?item.label():item.label}</span>}
+                {!sidebarCollapsed&&isA&&<div style={{width:3,height:20,borderRadius:2,background:C.primary,marginLeft:"auto",flexShrink:0}}/>}
               </button>
             )
           })}
@@ -1178,6 +1182,10 @@ function POSModule() {
 
   // Open item modal
   const openItem = (item) => {
+    if(item.track_stock && parseFloat(item.stock||0)<=0) {
+      alert(`${item.name} is out of stock`)
+      return
+    }
     const groups = getGroupsForItem(item.id, item.category_id)
     const init = {}
     groups.forEach(g => {
@@ -1319,6 +1327,26 @@ function POSModule() {
         await supabase.from("bb_open_tabs").delete().eq("id", activeTabId)
         await refreshTabs()
       }
+      // Deduct stock from inventory for tracked items
+      try {
+        const soldItems = typeof order.items==="string"?JSON.parse(order.items||"[]"):order.items||[]
+        for(const soldItem of soldItems) {
+          const {data:invItems} = await supabase.from("bb_inventory").select("*")
+            .eq("business_id",business.id).ilike("name",soldItem.name).limit(1)
+          if(invItems?.[0]?.track_stock!==false) {
+            // Also check menu items
+          }
+        }
+        // Deduct from menu item stock if track_stock enabled
+        for(const soldItem of soldItems) {
+          const menuItem = menuItems.find(m=>m.name===soldItem.name&&m.track_stock)
+          if(menuItem) {
+            const newStock = Math.max(0, parseFloat(menuItem.stock||0)-(soldItem.qty||1))
+            await supabase.from("bb_menu_items").update({stock:newStock}).eq("id",menuItem.id)
+          }
+        }
+      } catch(e) { console.warn("Stock deduction failed:", e) }
+
       // Update loyalty points
       if(loyaltyCustomer) {
         const newPoints = (loyaltyCustomer.loyalty_points||0) + pointsEarned - (redeemPoints?loyaltyCustomer.loyalty_points:0)
@@ -2150,7 +2178,9 @@ function MenuModule() {
                         </div>
                         {cat&&<Chip color="primary" size="sm">{cat.emoji} {cat.name}</Chip>}
                         {itemLinkCount>0&&<div style={{fontSize:11,color:C.muted,marginTop:4}}>{itemLinkCount} modifier group{itemLinkCount!==1?"s":""}</div>}
-                        {item.track_stock&&<div style={{fontSize:11,color:parseFloat(item.stock)<=parseFloat(item.reorder_level)?C.red:C.muted,marginTop:2}}>Stock: {item.stock}</div>}
+                        {item.track_stock&&<div style={{fontSize:11,color:parseFloat(item.stock)<=0?C.red:parseFloat(item.stock)<=parseFloat(item.reorder_level)?C.amber:C.muted,marginTop:2,fontWeight:parseFloat(item.stock)<=parseFloat(item.reorder_level)?700:400}}>
+                    {parseFloat(item.stock)<=0?"❌ Out of stock":`Stock: ${item.stock}`}
+                  </div>}
                         <div style={{display:"flex",gap:6,marginTop:10}}>
                           <Btn variant="secondary" size="sm" onClick={()=>openEditItem(item)} style={{flex:1}}>Edit</Btn>
                           <Btn variant="danger" size="sm" onClick={()=>deleteItem(item.id)}>🗑</Btn>
