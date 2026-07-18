@@ -148,6 +148,72 @@ function OfflineBanner() {
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
+// ── Permissions System ───────────────────────────────────────────────────────
+const DEFAULT_PERMISSIONS = {
+  owner: {
+    can_refund:true, can_discount:true, can_comp:true, can_delete_order:true,
+    can_view_reports:true, can_view_accounting:true, can_manage_staff:true,
+    can_manage_menu:true, can_open_shift:true, can_close_shift:true,
+    can_view_customers:true, can_edit_prices:true, can_apply_manual_discount:true,
+    can_view_cash_totals:true, can_access_settings:true,
+  },
+  manager: {
+    can_refund:true, can_discount:true, can_comp:true, can_delete_order:true,
+    can_view_reports:true, can_view_accounting:true, can_manage_staff:false,
+    can_manage_menu:true, can_open_shift:true, can_close_shift:true,
+    can_view_customers:true, can_edit_prices:false, can_apply_manual_discount:true,
+    can_view_cash_totals:true, can_access_settings:false,
+  },
+  barista: {
+    can_refund:false, can_discount:false, can_comp:false, can_delete_order:false,
+    can_view_reports:false, can_view_accounting:false, can_manage_staff:false,
+    can_manage_menu:false, can_open_shift:true, can_close_shift:false,
+    can_view_customers:true, can_edit_prices:false, can_apply_manual_discount:false,
+    can_view_cash_totals:false, can_access_settings:false,
+  },
+  cashier: {
+    can_refund:false, can_discount:false, can_comp:false, can_delete_order:false,
+    can_view_reports:false, can_view_accounting:false, can_manage_staff:false,
+    can_manage_menu:false, can_open_shift:true, can_close_shift:false,
+    can_view_customers:true, can_edit_prices:false, can_apply_manual_discount:false,
+    can_view_cash_totals:false, can_access_settings:false,
+  }
+}
+
+const PERMISSION_LABELS = {
+  can_refund:               "Process Refunds",
+  can_discount:             "Apply Discounts",
+  can_comp:                 "Complimentary Orders (Free)",
+  can_delete_order:         "Delete Orders",
+  can_view_reports:         "View Reports",
+  can_view_accounting:      "View Accounting",
+  can_manage_staff:         "Manage Staff",
+  can_manage_menu:          "Edit Menu",
+  can_open_shift:           "Open Shifts",
+  can_close_shift:          "Close Shifts",
+  can_view_customers:       "View Customers",
+  can_edit_prices:          "Edit Prices",
+  can_apply_manual_discount:"Manual Price Override",
+  can_view_cash_totals:     "View Cash Totals",
+  can_access_settings:      "Access Settings",
+}
+
+function usePermissions() {
+  const staff = useStaff()
+  // Merge role defaults with any custom permissions set on this staff member
+  const roleDefaults = DEFAULT_PERMISSIONS[staff?.role||"barista"]||DEFAULT_PERMISSIONS.barista
+  const custom = staff?.permissions ? (typeof staff.permissions==="string"?JSON.parse(staff.permissions):staff.permissions) : {}
+  return {...roleDefaults, ...custom}
+}
+
+// Permission gate - shows nothing or a "need permission" message
+function PermGate({perm, children, silent=false}) {
+  const perms = usePermissions()
+  if(perms[perm]) return children
+  if(silent) return null
+  return null // silent by default in most cases
+}
+
 // ── Plan limits ──────────────────────────────────────────────────────────────
 const PLAN_LIMITS = {
   free:       { staff:2, products:50,  features:["pos","shifts","dashboard","settings","printer","menu","inventory","staff","orders"] },
@@ -1623,7 +1689,13 @@ function POSModule() {
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8}}>
                     {[["none","None",""],["percent","%",""],["fixed","R Off",""],["comp","Comp","🎁"]].map(([type,label,icon])=>(
                       <button key={type} onClick={()=>{
-                        if(type!=="none"&&staff?.role==="barista"){
+                        // Check permissions
+                        const needsApproval = (type==="comp"&&!staff?.permissions_parsed?.can_comp) ||
+                          (type==="percent"&&!staff?.permissions_parsed?.can_discount) ||
+                          (type==="fixed"&&!staff?.permissions_parsed?.can_discount) ||
+                          (type!=="none"&&["barista","cashier"].includes(staff?.role)&&
+                            !(typeof staff?.permissions==="string"?JSON.parse(staff?.permissions||"{}"):staff?.permissions||{})[type==="comp"?"can_comp":"can_discount"])
+                        if(type!=="none"&&needsApproval){
                           setPendingDiscountType(type); setDiscountPin(""); setDiscountPinError(""); setDiscountPinModal(true)
                         } else {
                           setDiscountType(type); setDiscountPct(0); setDiscountFixed("")
@@ -1929,8 +2001,15 @@ function OrdersModule() {
   const totalRev = filtered.filter(o=>o.status!=="refunded").reduce((s,o)=>s+parseFloat(o.total||0),0)
 
   const doRefund = async () => {
-    const manager = staffList.find(s=>["owner","manager"].includes(s.role)&&String(s.pin)===String(refundPin))
-    if(!manager){ setRefundError("Incorrect manager PIN"); return }
+    // Find any staff member who has refund permission and matches the PIN
+    const authorised = staffList.find(s=>{
+      if(String(s.pin)!==String(refundPin)) return false
+      const perms = typeof s.permissions==="string"?JSON.parse(s.permissions||"{}"):s.permissions||{}
+      const roleDefault = DEFAULT_PERMISSIONS[s.role]||DEFAULT_PERMISSIONS.barista
+      return perms.can_refund!==undefined ? perms.can_refund : roleDefault.can_refund
+    })
+    if(!authorised){ setRefundError("Incorrect PIN or insufficient permissions"); return }
+    const manager = authorised
     setRefunding(true)
     await supabase.from("bb_orders").update({status:"refunded",refunded:true,refunded_at:new Date().toISOString(),refunded_by:manager.name}).eq("id",view.id)
     await refresh(); setRefunding(false); setView(null)
@@ -2012,8 +2091,9 @@ function OrdersModule() {
             </div>
             {view.status!=="refunded"?(
               <div style={{background:"#fff5f5",border:`1px solid ${C.red}30`,borderRadius:10,padding:14}}>
-                <div style={{fontSize:13,fontWeight:600,color:C.red,marginBottom:8}}>Refund Order</div>
-                <Input label="Manager PIN" type="password" value={refundPin} onChange={e=>{setRefundPin(e.target.value);setRefundError("")}} placeholder="••••"/>
+                <div style={{fontSize:13,fontWeight:600,color:C.red,marginBottom:4}}>Refund Order</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Enter the PIN of a staff member with refund permission</div>
+                <Input label="Authorisation PIN" type="password" value={refundPin} onChange={e=>{setRefundPin(e.target.value);setRefundError("")}} placeholder="Enter authorised PIN"/>
                 {refundError&&<div style={{color:C.red,fontSize:13,marginTop:6}}>{refundError}</div>}
                 <Btn variant="danger" onClick={doRefund} disabled={refunding||refundPin.length<4} style={{width:"100%",marginTop:10}} size="lg">{refunding?"Processing…":"Issue Refund"}</Btn>
               </div>
@@ -2609,13 +2689,14 @@ function StaffModule() {
   const [sRate,setSRate]         = useState("")
   const [sCommission,setSCommission] = useState("")
   const [sInitials,setSInitials] = useState("")
+  const [sPermissions,setSPermissions] = useState({})
 
-  const openNew  = () => { setEdit(null); setSName(""); setSRole("barista"); setSPin(""); setSEmail(""); setSPhone(""); setSRate(""); setSCommission(""); setSInitials(""); setModal(true) }
-  const openEdit = (s) => { setEdit(s); setSName(s.name); setSRole(s.role); setSPin(s.pin||""); setSEmail(s.email||""); setSPhone(s.phone||""); setSRate(String(s.hourly_rate||"")); setSCommission(String(s.commission_pct||"")); setSInitials(s.initials||""); setModal(true) }
+  const openNew  = () => { setEdit(null); setSName(""); setSRole("barista"); setSPin(""); setSEmail(""); setSPhone(""); setSRate(""); setSCommission(""); setSInitials(""); setSPermissions({}); setModal(true) }
+  const openEdit = (s) => { setEdit(s); setSName(s.name); setSRole(s.role); setSPin(s.pin||""); setSEmail(s.email||""); setSPhone(s.phone||""); setSRate(String(s.hourly_rate||"")); setSCommission(String(s.commission_pct||"")); setSInitials(s.initials||""); setSPermissions(typeof s.permissions==="string"?JSON.parse(s.permissions||"{}"):s.permissions||{}); setModal(true) }
 
   const save = async () => {
     setSaving(true)
-    const payload = { name:sName.trim(), role:sRole, pin:sPin||"0000", email:sEmail, phone:sPhone, hourly_rate:parseFloat(sRate)||0, commission_pct:parseFloat(sCommission)||0, initials:sInitials||sName.slice(0,2).toUpperCase(), business_id:business.id, active:true }
+    const payload = { name:sName.trim(), role:sRole, pin:sPin||"0000", email:sEmail, phone:sPhone, hourly_rate:parseFloat(sRate)||0, commission_pct:parseFloat(sCommission)||0, initials:sInitials||sName.slice(0,2).toUpperCase(), business_id:business.id, active:true, permissions:JSON.stringify(sPermissions) }
     if(edit) await supabase.from("bb_staff").update(payload).eq("id",edit.id)
     else await supabase.from("bb_staff").insert({...payload,id:uid()})
     await refresh(); setSaving(false); setModal(false)
@@ -2674,6 +2755,25 @@ function StaffModule() {
                 <div style={{background:C.faint,borderRadius:8,padding:"8px 10px"}}>
                   <div style={{color:C.muted,fontSize:11}}>Commission</div>
                   <div style={{fontWeight:700,color:C.black,fontSize:13}}>{s.commission_pct>0?`${s.commission_pct}%`:"None"}</div>
+                </div>
+                <div style={{background:C.faint,borderRadius:8,padding:"8px 10px",gridColumn:"1/-1"}}>
+                  <div style={{color:C.muted,fontSize:11,marginBottom:4}}>Permissions</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {(()=>{
+                      const perms = typeof s.permissions==="string"?JSON.parse(s.permissions||"{}"):s.permissions||{}
+                      const roleDefault = DEFAULT_PERMISSIONS[s.role]||DEFAULT_PERMISSIONS.barista
+                      const active = Object.entries(PERMISSION_LABELS).filter(([key])=>(perms[key]!==undefined?perms[key]:roleDefault[key]))
+                      return active.slice(0,4).map(([key,label])=>(
+                        <span key={key} style={{background:C.primaryPale,color:C.primary,borderRadius:4,padding:"2px 6px",fontSize:10,fontWeight:600}}>{label}</span>
+                      ))
+                    })()}
+                    {(()=>{
+                      const perms = typeof s.permissions==="string"?JSON.parse(s.permissions||"{}"):s.permissions||{}
+                      const roleDefault = DEFAULT_PERMISSIONS[s.role]||DEFAULT_PERMISSIONS.barista
+                      const count = Object.entries(PERMISSION_LABELS).filter(([key])=>(perms[key]!==undefined?perms[key]:roleDefault[key])).length
+                      return count>4?<span style={{fontSize:10,color:C.muted}}>+{count-4} more</span>:null
+                    })()}
+                  </div>
                 </div>
                 <div style={{background:clockin?C.greenPale:C.faint,border:`1px solid ${clockin?C.primary+"40":C.border}`,borderRadius:8,padding:"8px 10px",gridColumn:"1/-1"}}>
                   <div style={{color:C.muted,fontSize:11}}>Today</div>
@@ -2739,7 +2839,10 @@ function StaffModule() {
               <Input label="Initials" value={sInitials} onChange={e=>setSInitials(e.target.value.slice(0,3).toUpperCase())} placeholder="TN"/>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Role</label>
-                <select value={sRole} onChange={e=>setSRole(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                <select value={sRole} onChange={e=>{
+                  setSRole(e.target.value)
+                  setSPermissions({}) // Reset to role defaults when role changes
+                }} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
                   <option value="owner">Owner</option>
                   <option value="manager">Manager</option>
                   <option value="barista">Barista</option>
@@ -2754,6 +2857,26 @@ function StaffModule() {
             </div>
             <div style={{background:C.faint,borderRadius:8,padding:"10px 14px",fontSize:13,color:C.muted}}>
               💡 Default PIN is 0000 if left empty. Staff can update their PIN in Settings after logging in.
+            </div>
+            {/* Permissions */}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <label style={{fontSize:13,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8}}>Permissions</label>
+              <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Customise what this staff member can do. Role defaults are pre-selected.</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                {Object.entries(PERMISSION_LABELS).map(([key,label])=>{
+                  const roleDefault = DEFAULT_PERMISSIONS[sRole]?.[key]||false
+                  const current = sPermissions[key]!==undefined ? sPermissions[key] : roleDefault
+                  return(
+                    <div key={key} onClick={()=>setSPermissions(prev=>({...prev,[key]:!current}))}
+                      style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,border:`1px solid ${current?C.primary:C.border}`,background:current?C.primaryPale:C.faint,cursor:"pointer"}}>
+                      <div style={{width:16,height:16,borderRadius:3,border:`2px solid ${current?C.primary:C.border}`,background:current?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                        {current&&<span style={{color:"#fff",fontSize:10}}>✓</span>}
+                      </div>
+                      <span style={{fontSize:12,fontWeight:current?600:400,color:current?C.primary:C.black,lineHeight:1.3}}>{label}</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
             <div style={{display:"flex",gap:10}}>
               <Btn onClick={save} disabled={saving||!sName.trim()} style={{flex:1}} size="lg">{saving?"Saving…":edit?"Update":"Add Staff"}</Btn>
