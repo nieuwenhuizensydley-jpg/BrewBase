@@ -38,12 +38,14 @@ export default async function handler(req, res) {
   try {
     const data = req.body
 
-    // 1. Verify signature
-    const receivedSignature = data.signature
-    const expectedSignature = generateSignature(data, PAYFAST_PASSPHRASE)
-    if (receivedSignature !== expectedSignature) {
-      console.error("PayFast signature mismatch", { received: receivedSignature, expected: expectedSignature })
-      return res.status(400).send("Invalid signature")
+    // 1. Verify signature (only if passphrase is configured)
+    if (PAYFAST_PASSPHRASE) {
+      const receivedSignature = data.signature
+      const expectedSignature = generateSignature(data, PAYFAST_PASSPHRASE)
+      if (receivedSignature !== expectedSignature) {
+        console.error("PayFast signature mismatch")
+        return res.status(400).send("Invalid signature")
+      }
     }
 
     // 2. Verify payment status
