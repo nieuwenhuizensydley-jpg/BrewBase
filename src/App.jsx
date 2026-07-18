@@ -1797,10 +1797,10 @@ function POSModule() {
                     {opts.map(opt => {
                       const isSel = sel.includes(opt.id)
                       return (
-                        <button key={opt.id} onClick={() => toggleOption(group, opt)}
+                        <button key={opt.id} onClick={() => toggleOption(group, opt.id)}
                           style={{ padding: "12px 14px", borderRadius: 10, border: "1px solid", borderColor: isSel ? C.primary : C.border, background: isSel ? C.primaryPale : C.faint, color: isSel ? C.primary : C.black, cursor: "pointer", fontFamily: "Inter,sans-serif", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14, fontWeight: isSel ? 600 : 400 }}>
                           <span>{opt.name}</span>
-                          {parseFloat(opt.price_delta || 0) > 0 && <span style={{ fontSize: 12, fontWeight: 600 }}>+{fmt(opt.price_delta)}</span>}
+                          {parseFloat(opt.price_delta || 0) > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: isSel ? C.primary : C.green }}>+{fmt(opt.price_delta)}</span>}
                         </button>
                       )
                     })}
