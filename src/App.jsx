@@ -533,14 +533,14 @@ function AuthScreen({onAuthed}) {
 
   // Welcome screen
   if(mode==="welcome") return (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex"}}>
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:window.innerWidth<640?"column":"row"}}>
       {/* Left panel - branding */}
-      <div style={{width:"45%",background:C.sidebar,display:"flex",flexDirection:"column",justifyContent:"center",padding:"48px 56px"}}>
-        <div style={{marginBottom:32}}>
-          <img src={LOGO_LG} alt="BrewBase" style={{width:180,height:180,objectFit:"contain"}}/>
+      <div style={{width:window.innerWidth<640?"100%":"45%",background:C.sidebar,display:"flex",flexDirection:"column",justifyContent:"center",padding:window.innerWidth<640?"32px 24px":"48px 56px"}}>
+        <div style={{marginBottom:window.innerWidth<640?16:32,display:"flex",justifyContent:window.innerWidth<640?"center":"flex-start"}}>
+          <img src={LOGO_LG} alt="BrewBase" style={{width:window.innerWidth<640?100:180,height:window.innerWidth<640?100:180,objectFit:"contain"}}/>
         </div>
-        <div style={{marginTop:48}}>
-          <h1 style={{fontSize:38,fontWeight:800,color:"#fff",margin:"0 0 16px",fontFamily:"Playfair Display,serif",lineHeight:1.2}}>
+        <div style={{marginTop:window.innerWidth<640?16:48,textAlign:window.innerWidth<640?"center":"left"}}>
+          <h1 style={{fontSize:window.innerWidth<640?26:38,fontWeight:800,color:"#fff",margin:"0 0 16px",fontFamily:"Playfair Display,serif",lineHeight:1.2}}>
             Smart POS.<br/>Stronger Cafés.
           </h1>
           <p style={{fontSize:15,color:"rgba(255,255,255,.55)",lineHeight:1.7,marginBottom:40}}>
@@ -881,8 +881,21 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
   const [pinPromptDone, setPinPromptDone] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
+  // Detect phone vs tablet
+  const [isPhone, setIsPhone] = useState(window.innerWidth < 768)
+  const [isPortrait, setIsPortrait] = useState(window.innerHeight > window.innerWidth)
+  useEffect(()=>{
+    const handle = () => {
+      setIsPhone(window.innerWidth < 768)
+      setIsPortrait(window.innerHeight > window.innerWidth)
+    }
+    window.addEventListener("resize", handle)
+    return () => window.removeEventListener("resize", handle)
+  },[])
+  const showSidebar = !isPhone || !isPortrait
+
   return (
-    <div style={{display:"flex",height:"100vh",background:C.bg,overflow:"hidden",fontFamily:"Inter,sans-serif"}}>
+    <div style={{display:"flex",height:"100vh",background:C.bg,overflow:"hidden",fontFamily:"Inter,sans-serif",flexDirection: isPhone && isPortrait ? "column" : "row"}}>
       <OfflineBanner/>
       {paymentSuccess&&(
         <div style={{position:"fixed",top:0,left:0,right:0,zIndex:9999,background:C.primary,color:"#fff",textAlign:"center",padding:"14px 20px",fontSize:14,fontWeight:700,fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
@@ -906,8 +919,8 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
           className="mobile-backdrop"/>
       )}
 
-      {/* ── SIDEBAR ── */}
-      <div style={{
+      {/* ── SIDEBAR (hidden on phone portrait) ── */}
+      {showSidebar&&<div style={{
         width:sidebarCollapsed?56:220,flexShrink:0,background:C.sidebar,
         display:"flex",flexDirection:"column",overflow:"hidden",
         borderRight:`1px solid rgba(255,255,255,.06)`,transition:"width 0.2s ease"
@@ -967,7 +980,28 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
             <span>↪</span>{!sidebarCollapsed&&" Log Out"}
           </button>
         </div>
-      </div>
+      </div>}
+
+      {/* ── BOTTOM NAV (phone portrait only) ── */}
+      {isPhone&&isPortrait&&(
+        <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.sidebar,borderTop:"1px solid rgba(255,255,255,.1)",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom)"}}>
+          {allowedNav.slice(0,5).map(item=>{
+            const isA = active===item.id
+            return(
+              <button key={item.id} onClick={()=>setActive(item.id)}
+                style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"10px 4px",border:"none",background:"transparent",cursor:"pointer",color:isA?"#fff":"rgba(255,255,255,.4)"}}>
+                <span style={{fontSize:22}}>{item.icon}</span>
+                <span style={{fontSize:9,fontWeight:isA?700:400,whiteSpace:"nowrap"}}>{typeof item.label==="function"?item.label():item.label}</span>
+              </button>
+            )
+          })}
+          <button onClick={()=>setActive("settings")}
+            style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"10px 4px",border:"none",background:"transparent",cursor:"pointer",color:active==="settings"?"#fff":"rgba(255,255,255,.4)"}}>
+            <span style={{fontSize:22}}>⚙️</span>
+            <span style={{fontSize:9}}>More</span>
+          </button>
+        </div>
+      )}
 
       {/* ── MAIN CONTENT ── */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
