@@ -4140,6 +4140,20 @@ const BB_PRINTER = {
 
   async connect() {
     try {
+      // Check if Web Bluetooth is supported
+      if(!navigator.bluetooth) {
+        alert("Bluetooth is not supported on this browser.\n\nOn Android, use Chrome browser. Make sure you've granted Bluetooth permission to the app in Settings → Apps → BrewBase → Permissions.")
+        return false
+      }
+
+      // Check if Bluetooth is available
+      const available = await navigator.bluetooth.getAvailability().catch(()=>true)
+      if(!available) {
+        alert("Bluetooth is not available. Please:\n1. Turn on Bluetooth in your phone settings\n2. Make sure BrewBase has Bluetooth permission\n3. Try again")
+        return false
+      }
+
+      // Request permission and select device
       this.device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: [
@@ -4147,18 +4161,32 @@ const BB_PRINTER = {
           "e7810a71-73ae-499d-8c15-faa9aef0c3f2",
           "49535343-fe7d-4ae5-8fa9-9fafd205e455",
           "0000ff00-0000-1000-8000-00805f9b34fb",
-          "000018f0-0000-1000-8000-00805f9b34fb",
+          "00001101-0000-1000-8000-00805f9b34fb",
         ]
       })
+
       this.device.addEventListener("gattserverdisconnected", () => {
         this.connected = false
         this.char = null
         setTimeout(() => this.reconnect(), 3000)
       })
+
       await this._connect()
       return true
+
     } catch(e) {
       console.error("Printer connect failed:", e)
+      if(e.name === "NotFoundError" || e.message?.includes("cancelled")) {
+        // User cancelled - not an error
+        return false
+      }
+      if(e.name === "SecurityError" || e.message?.includes("permission")) {
+        alert("Bluetooth permission denied.\n\nGo to:\nSettings → Apps → BrewBase → Permissions → Bluetooth\nand enable it, then try again.")
+      } else if(e.name === "NotSupportedError") {
+        alert("Web Bluetooth not supported.\n\nMake sure you're using Chrome on Android and the app has Bluetooth permissions.")
+      } else {
+        alert(`Could not connect to printer.\n\nMake sure:\n• Printer is turned on\n• Printer is in pairing mode\n• You are within 5 metres\n\nError: ${e.message}`)
+      }
       return false
     }
   },
@@ -4178,7 +4206,7 @@ const BB_PRINTER = {
         }
       } catch(e) { /* try next service */ }
     }
-    throw new Error("No writable characteristic found")
+    throw new Error("No writable characteristic found on printer. Make sure you selected the correct printer.")
   },
 
   async reconnect() {
@@ -4314,7 +4342,7 @@ function PrinterModule() {
           </div>
         )}
         <div style={{marginTop:14,padding:"10px 14px",background:C.faint,borderRadius:8,fontSize:13,color:C.muted}}>
-          💡 For best results, keep Bluetooth enabled and the printer within 5 meters. The printer will try to reconnect automatically if it disconnects.
+          💡 Make sure your printer is <strong>turned on</strong> and in <strong>pairing/discoverable mode</strong>. On Android, also go to <strong>Settings → Apps → BrewBase → Permissions</strong> and enable Bluetooth. Keep printer within 5 metres.
         </div>
       </div>
 
