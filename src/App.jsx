@@ -5825,7 +5825,7 @@ function PayFastBillingSection({business}) {
       <div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
         <div style={{fontSize:14,fontWeight:700,color:C.black,marginBottom:8}}>Have a promo or access code?</div>
         <div style={{display:"flex",gap:8}}>
-          <input value={promoCode} onChange={e=>setPromoCode(e.target.value.toUpperCase())} placeholder="Enter code e.g. BREWBASE-PRO"
+          <input value={promoCode} onChange={e=>setPromoCode(e.target.value.toUpperCase())} placeholder="Enter your access code"
             style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
           <Btn onClick={applyPromo} disabled={promoWorking||!promoCode.trim()}>{promoWorking?"Applying…":"Apply"}</Btn>
         </div>
