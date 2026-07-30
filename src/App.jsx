@@ -827,6 +827,7 @@ const NAV_ITEMS = [
   {id:"waste",          icon:"🗑️", label:()=>t("waste"),           roles:["owner","manager"]},
   {id:"stocktake",      icon:"📋", label:"Stock Take",              roles:["owner","manager","barista","cashier"]},
   {id:"income",         icon:"💵", label:"Other Income",            roles:["owner","manager"]},
+  {id:"notes",          icon:"📝", label:"Staff Notes",              roles:["owner","manager","barista","cashier"]},
   {id:"purchase_orders",icon:"📬", label:()=>t("purchase_orders"), roles:["owner","manager"]},
   {id:"invoices",       icon:"🧾", label:()=>t("invoices"),        roles:["owner","manager"]},
   {id:"bank_recon",     icon:"🏦", label:()=>t("bank_recon"),      roles:["owner","manager"]},
@@ -873,6 +874,7 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
     waste:         <PlanGate feature="waste"><WasteLogModule/></PlanGate>,
     stocktake:     <StockTakeModule/>,
     income:        <IncomeModule/>,
+    notes:         <StaffNotesModule/>,
     purchase_orders:<PlanGate feature="purchase_orders"><PurchaseOrdersModule/></PlanGate>,
     invoices:      <PlanGate feature="invoices"><InvoicesModule/></PlanGate>,
     bank_recon:    <PlanGate feature="bank_recon"><BankReconciliationModule/></PlanGate>,
@@ -1261,9 +1263,9 @@ function POSModule() {
   const {data:loyaltyRules} = useData("bb_loyalty_rules")
   const {data:shifts} = useData("bb_shifts")
 
-  // Combine menu items + combos
+  // Combine menu items + combos - sorted alphabetically
   const allItems = [
-    ...menuItems,
+    ...menuItems.sort((a,b)=>(a.name||"").localeCompare(b.name||"")),
     ...combos.map(c=>({...c, isCombo:true, emoji:"🎁", category_id:"combo", active:true}))
   ]
   // Filter menu items (including time-of-day availability)
@@ -1476,7 +1478,7 @@ function POSModule() {
         }).eq("id", loyaltyCustomer.id)
         await supabase.from("bb_loyalty_transactions").insert([
           ...(stampsEarned>0?[{id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"earn",points:stampsEarned,description:"Stamp earned"}]:[]),
-          ...(redeemPoints?[{id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"redeem",points:-14,description:"Free drink redeemed — card reset to 0"}]:[])
+          ...(redeemPoints?[{id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"redeem",points:-14,description:`Free drink redeemed — ${cart.map(i=>i.name).join(", ")} — card reset to 0`}]:[])
         ])
       }
       // Auto-print kitchen ticket
@@ -1814,13 +1816,16 @@ function POSModule() {
                     </div>
                     {/* Stamp card visual */}
                     <div style={{background:C.faint,borderRadius:10,padding:10}}>
-                      <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:600}}>LOYALTY CARD — {currentStamps}/14 stamps</div>
+                      <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:600}}>LOYALTY CARD — {currentStamps}/14 stamps · Buy 14 get the 15th FREE</div>
                       <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                         {Array.from({length:14},(_,i)=>(
                           <div key={i} style={{width:24,height:24,borderRadius:"50%",background:i<currentStamps?C.primary:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12}}>
                             {i<currentStamps?"☕":""}
                           </div>
                         ))}
+                        <div style={{width:24,height:24,borderRadius:"50%",background:currentStamps>=14?"#f0c040":"#e4e0da",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,border:`2px dashed ${currentStamps>=14?"#b5803a":C.border}`}}>
+                          {currentStamps>=14?"🎁":""}
+                        </div>
                       </div>
                       {currentStamps>=14&&(
                         <div onClick={()=>setRedeemPoints(!redeemPoints)} style={{marginTop:10,display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:redeemPoints?C.primaryPale:C.faint,border:`1px solid ${redeemPoints?C.primary:C.border}`,borderRadius:8,cursor:"pointer"}}>
@@ -5789,7 +5794,14 @@ function StockTakeModule() {
 
       {tab==="setup"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{fontSize:13,color:C.muted,marginBottom:4}}>Select which inventory items staff must count during daily stock take:</div>
+          {!["owner","manager"].includes(currentStaff?.role)?(
+            <div style={{background:C.amberPale,border:`1px solid ${C.amber}30`,borderRadius:12,padding:24,textAlign:"center"}}>
+              <div style={{fontSize:32,marginBottom:8}}>🔒</div>
+              <div style={{fontSize:16,fontWeight:700,color:C.amber}}>Owner/Manager only</div>
+              <div style={{fontSize:13,color:C.muted,marginTop:4}}>Only owners and managers can configure stock take items</div>
+            </div>
+          ):(
+          <><div style={{fontSize:13,color:C.muted,marginBottom:4}}>Select which inventory items staff must count during daily stock take:</div>
           {inventory.length===0?(
             <Empty icon="📦" title="No inventory items" message="Add items in Inventory first"/>
           ):inventory.map(item=>(
@@ -5807,6 +5819,7 @@ function StockTakeModule() {
               {item.require_stocktake&&<Chip color="primary" size="sm">Required</Chip>}
             </div>
           ))}
+          </>)}
         </div>
       )}
 
@@ -5967,6 +5980,126 @@ function IncomeModule() {
           </div>
         </Modal>
       )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STAFF NOTES / TODO (staff leave notes for owner, owner sees all)
+// ══════════════════════════════════════════════════════════════════════════════
+function StaffNotesModule() {
+  const business  = useBusiness()
+  const currentStaff = useStaff()
+  const {data:notes, refresh} = useData("bb_staff_notes")
+  const [text, setText]     = useState("")
+  const [priority, setPriority] = useState("normal")
+  const [saving, setSaving] = useState(false)
+  const [filter, setFilter] = useState("all") // all | mine | pending | done
+
+  const isOwnerManager = ["owner","manager"].includes(currentStaff?.role)
+
+  const save = async () => {
+    if(!text.trim()) return
+    setSaving(true)
+    await supabase.from("bb_staff_notes").insert({
+      id:uid(), business_id:business.id,
+      staff_id:currentStaff?.id, staff_name:currentStaff?.name,
+      text:text.trim(), priority, status:"pending",
+      date:new Date().toISOString().slice(0,10),
+      created_at:new Date().toISOString()
+    })
+    setText(""); setSaving(false); await refresh()
+  }
+
+  const markDone = async (id) => {
+    await supabase.from("bb_staff_notes").update({status:"done",done_at:new Date().toISOString()}).eq("id",id)
+    await refresh()
+  }
+
+  const del = async (id) => {
+    await supabase.from("bb_staff_notes").delete().eq("id",id); await refresh()
+  }
+
+  const filtered = notes.filter(n=>{
+    if(filter==="mine") return n.staff_id===currentStaff?.id
+    if(filter==="pending") return n.status==="pending"
+    if(filter==="done") return n.status==="done"
+    return true
+  }).sort((a,b)=>{
+    // Priority order: urgent first, then normal, then done
+    if(a.status==="done"&&b.status!=="done") return 1
+    if(b.status==="done"&&a.status!=="done") return -1
+    if(a.priority==="urgent"&&b.priority!=="urgent") return -1
+    if(b.priority==="urgent"&&a.priority!=="urgent") return 1
+    return new Date(b.created_at)-new Date(a.created_at)
+  })
+
+  const pending = notes.filter(n=>n.status==="pending")
+
+  return (
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20,maxWidth:800}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Staff Notes</div>
+          <div style={{fontSize:13,color:C.muted}}>{pending.length} pending note{pending.length!==1?"s":""}</div>
+        </div>
+      </div>
+
+      {/* Add note */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+        <div style={{fontSize:14,fontWeight:700,color:C.black,marginBottom:12}}>Leave a note for the owner</div>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="e.g. We're running low on oat milk, please order more. The coffee machine also needs cleaning."
+          rows={3} style={{width:"100%",background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"12px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none",resize:"vertical",boxSizing:"border-box"}}/>
+        <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center"}}>
+          <div style={{display:"flex",gap:6}}>
+            {[["normal","Normal",""],["important","Important","⚠"],["urgent","Urgent","🚨"]].map(([p,label,icon])=>(
+              <button key={p} onClick={()=>setPriority(p)}
+                style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${priority===p?(p==="urgent"?C.red:p==="important"?C.amber:C.primary):C.border}`,background:priority===p?(p==="urgent"?"#fff5f5":p==="important"?C.amberPale:C.primaryPale):"transparent",color:priority===p?(p==="urgent"?C.red:p==="important"?C.amber:C.primary):C.muted,fontSize:13,fontWeight:priority===p?700:400,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                {icon} {label}
+              </button>
+            ))}
+          </div>
+          <Btn onClick={save} disabled={saving||!text.trim()} style={{marginLeft:"auto"}}>{saving?"Saving…":"Post Note"}</Btn>
+        </div>
+      </div>
+
+      {/* Filter tabs */}
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
+        {[["all","All Notes"],["pending","Pending"],["mine","My Notes"],["done","Done"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setFilter(id)} style={{padding:"10px 18px",border:"none",background:"transparent",cursor:"pointer",fontSize:14,fontWeight:filter===id?700:400,color:filter===id?C.primary:C.muted,borderBottom:`2px solid ${filter===id?C.primary:"transparent"}`,fontFamily:"Inter,sans-serif",marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+
+      {/* Notes list */}
+      {filtered.length===0
+        ? <Empty icon="📝" title="No notes" message="Staff can leave notes here for things that need attention"/>
+        : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {filtered.map(n=>(
+              <div key={n.id} style={{background:C.surface,border:`1px solid ${n.priority==="urgent"?C.red:n.priority==="important"?C.amber:C.border}`,borderRadius:12,padding:18,opacity:n.status==="done"?0.6:1}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:10}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                      <div style={{width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${C.primary},${C.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#fff",flexShrink:0}}>
+                        {n.staff_name?.slice(0,2).toUpperCase()||"?"}
+                      </div>
+                      <span style={{fontSize:13,fontWeight:700,color:C.black}}>{n.staff_name||"Staff"}</span>
+                      <span style={{fontSize:12,color:C.muted}}>{n.date}</span>
+                      {n.priority!=="normal"&&<Chip color={n.priority==="urgent"?"red":"amber"} size="sm">{n.priority==="urgent"?"🚨 Urgent":"⚠ Important"}</Chip>}
+                      {n.status==="done"&&<Chip color="primary" size="sm">✓ Done</Chip>}
+                    </div>
+                    <div style={{fontSize:15,color:C.black,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{n.text}</div>
+                  </div>
+                </div>
+                {n.status==="pending"&&(
+                  <div style={{display:"flex",gap:8}}>
+                    {isOwnerManager&&<Btn size="sm" onClick={()=>markDone(n.id)}>✓ Mark Done</Btn>}
+                    {(n.staff_id===currentStaff?.id||isOwnerManager)&&<Btn variant="danger" size="sm" onClick={()=>del(n.id)}>🗑 Delete</Btn>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+      }
     </div>
   )
 }
