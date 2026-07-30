@@ -825,6 +825,8 @@ const NAV_ITEMS = [
   {id:"franchise",      icon:"🏢", label:()=>t("franchise"),       roles:["owner"]},
   {id:"owner",          icon:"📱", label:()=>t("owner"),           roles:["owner"]},
   {id:"waste",          icon:"🗑️", label:()=>t("waste"),           roles:["owner","manager"]},
+  {id:"stocktake",      icon:"📋", label:"Stock Take",              roles:["owner","manager","barista","cashier"]},
+  {id:"income",         icon:"💵", label:"Other Income",            roles:["owner","manager"]},
   {id:"purchase_orders",icon:"📬", label:()=>t("purchase_orders"), roles:["owner","manager"]},
   {id:"invoices",       icon:"🧾", label:()=>t("invoices"),        roles:["owner","manager"]},
   {id:"bank_recon",     icon:"🏦", label:()=>t("bank_recon"),      roles:["owner","manager"]},
@@ -856,7 +858,7 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
 
   const MODULES = {
     dashboard: <DashboardModule/>,
-    pos:       <POSModule/>,
+    pos:       <ShiftGatedPOS/>,
     orders:    <OrdersModule/>,
     shifts:    <ShiftsModule/>,
     menu:      <MenuModule/>,
@@ -869,6 +871,8 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
     franchise: <FranchiseModule/>,
     owner:         <OwnerDashboardModule/>,
     waste:         <PlanGate feature="waste"><WasteLogModule/></PlanGate>,
+    stocktake:     <StockTakeModule/>,
+    income:        <IncomeModule/>,
     purchase_orders:<PlanGate feature="purchase_orders"><PurchaseOrdersModule/></PlanGate>,
     invoices:      <PlanGate feature="invoices"><InvoicesModule/></PlanGate>,
     bank_recon:    <PlanGate feature="bank_recon"><BankReconciliationModule/></PlanGate>,
@@ -1247,6 +1251,9 @@ function POSModule() {
   const [tabsOpen, setTabsOpen] = useState(false)
   const [saveTabName, setSaveTabName] = useState("")
   const [activeTabId, setActiveTabId] = useState(null)
+  const [voidModal, setVoidModal] = useState(false)
+  const [voidPin, setVoidPin] = useState("")
+  const [voidError, setVoidError] = useState("")
   // Loyalty
   const [loyaltyCustomer, setLoyaltyCustomer] = useState(null)
   const [loyaltyModal, setLoyaltyModal] = useState(false)
@@ -1369,8 +1376,14 @@ function POSModule() {
   const vatRate = business?.vat_registered ? parseFloat(business?.vat_rate||15)/100 : 0
   const vatAmt  = (subtotal - discAmt - pointsValue) * vatRate
   const total = Math.max(0, subtotal - discAmt - pointsValue + vatAmt + tipAmt)
-  // Points earned this sale (1 point per R1 spent)
-  const pointsEarned = Math.floor(total)
+  // Stamp system: 1 stamp per qualifying drink
+  // Count drinks that qualify for loyalty stamp (not combos, not food - actual drinks)
+  const stampItems = cart.filter(i=>i.category_id&&!i.isCombo)
+  const stampsEarned = stampItems.length > 0 ? 1 : 0 // 1 stamp per order (one drink per visit)
+  const currentStamps = parseInt(loyaltyCustomer?.loyalty_points||0)
+  const newStamps = currentStamps + stampsEarned
+  const earnedFreeDrink = newStamps >= 14 // 14 stamps = free drink
+  const pointsEarned = stampsEarned // keeping variable name for compatibility
   const cashNum = parseFloat(cashGiven) || 0
   const change = Math.max(0, cashNum - total)
 
@@ -1454,16 +1467,16 @@ function POSModule() {
 
       // Update loyalty points
       if(loyaltyCustomer) {
-        const newPoints = (loyaltyCustomer.loyalty_points||0) + pointsEarned - (redeemPoints?loyaltyCustomer.loyalty_points:0)
+        const newStampCount = redeemPoints ? 0 : Math.min(14, (loyaltyCustomer.loyalty_points||0) + stampsEarned)
         await supabase.from("bb_customers").update({
-          loyalty_points: Math.max(0, newPoints),
+          loyalty_points: newStampCount,
           total_visits: (loyaltyCustomer.total_visits||0)+1,
           total_spent: (parseFloat(loyaltyCustomer.total_spent)||0)+total,
           last_visit: new Date().toISOString(),
         }).eq("id", loyaltyCustomer.id)
         await supabase.from("bb_loyalty_transactions").insert([
-          {id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"earn",points:pointsEarned,description:`Earned from order`},
-          ...(redeemPoints?[{id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"redeem",points:-(loyaltyCustomer.loyalty_points||0),description:"Redeemed for discount"}]:[])
+          ...(stampsEarned>0?[{id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"earn",points:stampsEarned,description:"Stamp earned"}]:[]),
+          ...(redeemPoints?[{id:uid(),business_id:business.id,customer_id:loyaltyCustomer.id,order_id:order.id,type:"redeem",points:-14,description:"Free drink redeemed — card reset to 0"}]:[])
         ])
       }
       // Auto-print kitchen ticket
@@ -1536,7 +1549,7 @@ function POSModule() {
   }
 
   const optMenuItems = [
-    { icon: "🗑", label: "Clear ticket",    action: () => { resetOrder(); setOptMenuOpen(false) } },
+    { icon: "🗑", label: "Clear ticket",    action: () => { if(cart.length===0){resetOrder();setOptMenuOpen(false)}else{setVoidModal(true);setOptMenuOpen(false)} } },
     { icon: "📑", label: "Open tabs",       action: () => { setTabsOpen(true); setOptMenuOpen(false) } },
     { icon: "✂️", label: "Save for later",  action: () => { setTabsOpen(true); setOptMenuOpen(false) } },
     { icon: "🖨", label: "Print bill",      action: doPrintBill },
@@ -1796,17 +1809,28 @@ function POSModule() {
                         </div>
                         <button onClick={()=>setLoyaltyCustomer(null)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>×</button>
                       </div>
-                      <div style={{fontSize:13,color:C.primary,marginBottom:8}}>+{pointsEarned} points earned on this sale</div>
-                      {(loyaltyCustomer.loyalty_points||0)>=100&&(
-                        <div onClick={()=>setRedeemPoints(!redeemPoints)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:redeemPoints?C.primaryPale:C.faint,border:`1px solid ${redeemPoints?C.primary:C.border}`,borderRadius:8,cursor:"pointer"}}>
+                      <div style={{fontSize:13,color:C.primary,marginBottom:8}}>
+                      {stampsEarned>0?"☕ +1 stamp earned on this visit":"No stamp — no drinks ordered"}
+                    </div>
+                    {/* Stamp card visual */}
+                    <div style={{background:C.faint,borderRadius:10,padding:10}}>
+                      <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:600}}>LOYALTY CARD — {currentStamps}/14 stamps</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                        {Array.from({length:14},(_,i)=>(
+                          <div key={i} style={{width:24,height:24,borderRadius:"50%",background:i<currentStamps?C.primary:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12}}>
+                            {i<currentStamps?"☕":""}
+                          </div>
+                        ))}
+                      </div>
+                      {currentStamps>=14&&(
+                        <div onClick={()=>setRedeemPoints(!redeemPoints)} style={{marginTop:10,display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:redeemPoints?C.primaryPale:C.faint,border:`1px solid ${redeemPoints?C.primary:C.border}`,borderRadius:8,cursor:"pointer"}}>
                           <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${redeemPoints?C.primary:C.border}`,background:redeemPoints?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                             {redeemPoints&&<span style={{color:"#fff",fontSize:11}}>✓</span>}
                           </div>
-                          <span style={{fontSize:13,fontWeight:600,color:redeemPoints?C.primary:C.black}}>
-                            Redeem {loyaltyCustomer.loyalty_points} points → save {fmt(Math.min((loyaltyCustomer.loyalty_points/100)*10,subtotal-discAmt))}
-                          </span>
+                          <span style={{fontSize:13,fontWeight:600,color:redeemPoints?C.primary:C.black}}>🎉 Redeem free drink! (14 stamps reached)</span>
                         </div>
                       )}
+                    </div>
                     </div>
                   ):(
                     <button onClick={()=>setLoyaltyModal(true)} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px dashed ${C.border}`,background:C.faint,color:C.muted,cursor:"pointer",fontSize:14,fontFamily:"Inter,sans-serif",fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
@@ -1944,6 +1968,28 @@ function POSModule() {
 
       {/* ── LOYALTY LOOKUP MODAL ── */}
       {loyaltyModal&&<LoyaltyLookupModal business={business} onSelect={c=>{setLoyaltyCustomer(c);setRedeemPoints(false)}} onClose={()=>setLoyaltyModal(false)}/>}
+
+      {/* ── VOID / CLEAR TICKET MODAL (owner PIN only) ── */}
+      {voidModal&&(
+        <Modal title="Void Ticket" subtitle="Owner PIN required to clear a ticket with items" onClose={()=>{setVoidModal(false);setVoidPin("");setVoidError("")}} width={380}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{background:C.amberPale,border:`1px solid ${C.amber}30`,borderRadius:10,padding:"10px 14px",fontSize:13,color:C.amber,fontWeight:600}}>
+              ⚠ Clearing a ticket with items requires the owner PIN to prevent accidental or unauthorized voids.
+            </div>
+            <Input label="Owner PIN" type="password" value={voidPin} onChange={e=>{setVoidPin(e.target.value.slice(0,4));setVoidError("")}} placeholder="••••"/>
+            {voidError&&<div style={{color:C.red,fontSize:13,fontWeight:600}}>{voidError}</div>}
+            <div style={{display:"flex",gap:10}}>
+              <Btn variant="danger" onClick={async()=>{
+                const {data:owners} = await supabase.from("bb_staff").select("*").eq("business_id",business.id).eq("role","owner")
+                const match = owners?.find(o=>String(o.pin)===String(voidPin))
+                if(!match){ setVoidError("Incorrect owner PIN"); return }
+                resetOrder(); setVoidModal(false); setVoidPin(""); setVoidError("")
+              }} disabled={voidPin.length<4} style={{flex:1}} size="lg">Void Ticket</Btn>
+              <Btn variant="secondary" onClick={()=>{setVoidModal(false);setVoidPin("");setVoidError("")}} style={{flex:1}} size="lg">Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* ── DISCOUNT PIN MODAL (for baristas needing manager approval) ── */}
       {discountPinModal&&(
@@ -2955,7 +3001,7 @@ function AccountingModule() {
   const save = async () => {
     setSaving(true)
     const staffMember = staffList.find(s=>s.id===eStaff)
-    const payload = { description:eDesc.trim(), amount:parseFloat(eAmt)||0, expense_type:eType, category:eCat, date:eDate, supplier:eSupplier, reference:eRef, staff_id:eStaff||null, staff_name:staffMember?.name||null, is_recurring:eRecur, recur_interval:eRecur?eRecurInterval:null, business_id:business.id, status:"paid" }
+    const payload = { description:eDesc.trim(), amount:parseFloat(eAmt)||0, expense_type:eType, category:eCat, date:eDate, supplier:eSupplier, reference:eRef, staff_id:eStaff||null, staff_name:staffMember?.name||null, is_recurring:eRecur, recur_interval:eRecur?eRecurInterval:null, business_id:business.id, status:eRecur?"pending":"paid" }
     if(edit) await supabase.from("bb_expenses").update(payload).eq("id",edit.id)
     else await supabase.from("bb_expenses").insert({...payload,id:uid()})
     await refresh(); setSaving(false); setModal(false)
@@ -2995,7 +3041,7 @@ function AccountingModule() {
       </div>
 
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
-        {[["overview","Overview"],["expenses","Expenses"],["wages","Wages"],["pl","P&L"]].map(([id,label])=>(
+        {[["overview","Overview"],["expenses","Expenses"],["wages","Wages"],["pl","P&L"],["income","Other Income"]].map(([id,label])=>(
           <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 18px",border:"none",background:"transparent",cursor:"pointer",fontSize:14,fontWeight:tab===id?700:400,color:tab===id?C.primary:C.muted,borderBottom:`2px solid ${tab===id?C.primary:"transparent"}`,fontFamily:"Inter,sans-serif",marginBottom:-1}}>{label}</button>
         ))}
       </div>
@@ -3029,7 +3075,11 @@ function AccountingModule() {
                       <td style={{padding:"12px 14px",fontSize:13,color:C.muted}}>{e.staff_name||"—"}</td>
                       <td style={{padding:"12px 14px",fontSize:15,fontWeight:700,color:C.red}}>{fmt(e.amount)}</td>
                       <td style={{padding:"12px 14px"}}>
+                        <Chip color={e.status==="pending"?"amber":"primary"} size="sm">{e.status==="pending"?"Pending":"Paid"}</Chip>
+                      </td>
+                      <td style={{padding:"12px 14px"}}>
                         <div style={{display:"flex",gap:6}}>
+                          {e.status==="pending"&&<Btn size="sm" onClick={async()=>{await supabase.from("bb_expenses").update({status:"paid",paid_date:new Date().toISOString().slice(0,10)}).eq("id",e.id);refresh()}}>✓ Pay</Btn>}
                           <Btn variant="secondary" size="sm" onClick={()=>openEdit(e)}>Edit</Btn>
                           <Btn variant="danger" size="sm" onClick={()=>del(e.id)}>🗑</Btn>
                         </div>
@@ -3040,6 +3090,10 @@ function AccountingModule() {
               </table></div>
           }
         </div>
+      )}
+
+      {tab==="income"&&(
+        <IncomeModule/>
       )}
 
       {tab==="pl"&&(
@@ -3593,6 +3647,14 @@ function ShiftsModule() {
 
   const closeShift = async () => {
     if(!openShift) return
+    // Check if stock take is required and done
+    const {data:inv} = await supabase.from("bb_inventory").select("id").eq("business_id",business.id).eq("require_stocktake",true)
+    if(inv&&inv.length>0&&!openShift.stocktake_done) {
+      alert("Stock take must be completed before closing the shift.
+
+Go to Stock Take in the sidebar to complete it.")
+      return
+    }
     setSaving(true)
     const totals = calcShiftTotals(openShift)
     const cashVar = (parseFloat(cashCounted)||0) - (totals.cash + parseFloat(openShift.open_float||0))
@@ -5549,6 +5611,364 @@ function BankReconciliationModule() {
           </table>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SHIFT GATED POS - Forces shift open before trading
+// ══════════════════════════════════════════════════════════════════════════════
+function ShiftGatedPOS() {
+  const business = useBusiness()
+  const currentStaff = useStaff()
+  const {data:shifts, refresh:refreshShifts} = useData("bb_shifts")
+  const [openFloat, setOpenFloat] = useState("")
+  const [opening, setOpening] = useState(false)
+  const [showOpen, setShowOpen] = useState(false)
+
+  const today = new Date().toISOString().slice(0,10)
+  const openShift = shifts.find(s=>s.status==="open"&&s.date===today)
+
+  const startShift = async () => {
+    setOpening(true)
+    await supabase.from("bb_shifts").insert({
+      id:uid(), business_id:business.id, date:today,
+      opened_by:currentStaff?.id, opened_at:new Date().toISOString(),
+      status:"open", open_float:parseFloat(openFloat)||0,
+    })
+    await refreshShifts()
+    setOpening(false)
+    setShowOpen(false)
+    setOpenFloat("")
+  }
+
+  if(!openShift) return (
+    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:C.bg,padding:24}}>
+      <div style={{maxWidth:440,width:"100%",textAlign:"center"}}>
+        <div style={{fontSize:64,marginBottom:16}}>🕐</div>
+        <div style={{fontSize:24,fontWeight:800,color:C.black,fontFamily:"Playfair Display,serif",marginBottom:8}}>No shift open</div>
+        <div style={{fontSize:14,color:C.muted,marginBottom:32,lineHeight:1.6}}>
+          A shift must be opened before taking orders. This ensures cash is tracked and sales are recorded correctly.
+        </div>
+        {!showOpen?(
+          <Btn size="lg" onClick={()=>setShowOpen(true)} style={{width:"100%",maxWidth:300,margin:"0 auto"}}>
+            Open Shift to Start Trading
+          </Btn>
+        ):(
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:24,textAlign:"left"}}>
+            <div style={{fontSize:16,fontWeight:700,color:C.black,marginBottom:4}}>Open New Shift</div>
+            <div style={{fontSize:13,color:C.muted,marginBottom:16}}>Enter your opening cash float</div>
+            <Input label="Opening Cash Float (R)" type="number" value={openFloat} onChange={e=>setOpenFloat(e.target.value)} placeholder="e.g. 500.00" hint="Cash already in the till before trading starts"/>
+            <div style={{display:"flex",gap:10,marginTop:16}}>
+              <Btn onClick={startShift} disabled={opening} style={{flex:1}} size="lg">{opening?"Opening…":"Open Shift"}</Btn>
+              <Btn variant="secondary" onClick={()=>setShowOpen(false)} style={{flex:1}} size="lg">Cancel</Btn>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+  return <POSModule/>
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STOCK TAKE MODULE
+// ══════════════════════════════════════════════════════════════════════════════
+function StockTakeModule() {
+  const business = useBusiness()
+  const currentStaff = useStaff()
+  const {data:inventory, refresh:refreshInv} = useData("bb_inventory")
+  const {data:shifts, refresh:refreshShifts} = useData("bb_shifts")
+  const [saving, setSaving] = useState(false)
+  const [counts, setCounts] = useState({})
+  const [submitted, setSubmitted] = useState(false)
+  const [tab, setTab] = useState("take") // take | history | setup
+
+  // Which items require stock take (flagged in inventory)
+  const stockTakeItems = inventory.filter(i=>i.require_stocktake)
+  const today = new Date().toISOString().slice(0,10)
+  const openShift = shifts.find(s=>s.status==="open"&&s.date===today)
+
+  const submitStockTake = async () => {
+    if(stockTakeItems.some(i=>counts[i.id]===undefined||counts[i.id]==="")) {
+      alert("Please count all items before submitting"); return
+    }
+    setSaving(true)
+    // Update inventory with counted amounts
+    for(const item of stockTakeItems) {
+      const counted = parseFloat(counts[item.id])||0
+      const variance = counted - parseFloat(item.stock||0)
+      await supabase.from("bb_inventory").update({
+        stock: counted,
+        last_stocktake: new Date().toISOString(),
+        last_stocktake_by: currentStaff?.id,
+      }).eq("id", item.id)
+      // Log waste if variance is negative
+      if(variance < 0) {
+        await supabase.from("bb_waste_log").insert({
+          id:uid(), business_id:business.id,
+          item_id:item.id, item_name:item.name,
+          quantity:Math.abs(variance), unit:item.unit||"units",
+          reason:"stocktake_variance", cost:0,
+          logged_by:currentStaff?.id, date:today,
+          notes:`Stock take variance — expected ${item.stock}, counted ${counted}`
+        })
+      }
+    }
+    // Mark stock take complete on shift
+    if(openShift) {
+      await supabase.from("bb_shifts").update({stocktake_done:true, stocktake_by:currentStaff?.id, stocktake_at:new Date().toISOString()}).eq("id",openShift.id)
+    }
+    await refreshInv()
+    await refreshShifts()
+    setSaving(false)
+    setSubmitted(true)
+  }
+
+  return (
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Stock Take</div>
+          <div style={{fontSize:13,color:C.muted}}>{stockTakeItems.length} items to count</div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
+        {[["take","Daily Count"],["setup","Setup Items"],["history","History"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 18px",border:"none",background:"transparent",cursor:"pointer",fontSize:14,fontWeight:tab===id?700:400,color:tab===id?C.primary:C.muted,borderBottom:`2px solid ${tab===id?C.primary:"transparent"}`,fontFamily:"Inter,sans-serif",marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+
+      {tab==="take"&&(
+        <>
+          {openShift?.stocktake_done||submitted?(
+            <div style={{background:C.greenPale,border:`1px solid ${C.primary}30`,borderRadius:14,padding:32,textAlign:"center"}}>
+              <div style={{fontSize:48,marginBottom:12}}>✅</div>
+              <div style={{fontSize:20,fontWeight:700,color:C.primary,marginBottom:8}}>Stock take complete!</div>
+              <div style={{fontSize:14,color:C.muted}}>All counts have been recorded. You can now close the shift.</div>
+            </div>
+          ):stockTakeItems.length===0?(
+            <Empty icon="📦" title="No items set up for stock take" message='Go to "Setup Items" tab to choose which inventory items staff must count' action={<Btn onClick={()=>setTab("setup")}>Setup Items</Btn>}/>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{background:C.amberPale,border:`1px solid ${C.amber}30`,borderRadius:10,padding:"12px 16px",fontSize:13,color:C.amber,fontWeight:600}}>
+                ⚠ Stock take must be completed before the shift can be closed
+              </div>
+              {stockTakeItems.map(item=>{
+                const counted = counts[item.id]
+                const variance = counted!==undefined&&counted!==""?parseFloat(counted)-parseFloat(item.stock||0):null
+                return(
+                  <div key={item.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                      <div>
+                        <div style={{fontSize:16,fontWeight:700,color:C.black}}>{item.name}</div>
+                        <div style={{fontSize:12,color:C.muted}}>System shows: {item.stock} {item.unit} · Reorder at: {item.reorder_level} {item.unit}</div>
+                      </div>
+                      {variance!==null&&(
+                        <div style={{fontSize:13,fontWeight:700,color:variance===0?C.primary:variance>0?C.blue:C.red,background:variance===0?C.greenPale:variance>0?"#e8f0f8":"#fff5f5",padding:"4px 10px",borderRadius:20}}>
+                          {variance===0?"✓ Matches":variance>0?`+${variance} surplus`:`${variance} missing`}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:12}}>
+                      <label style={{fontSize:13,color:C.muted,fontWeight:500,flexShrink:0}}>Counted amount:</label>
+                      <input type="number" value={counts[item.id]??""} onChange={e=>setCounts(prev=>({...prev,[item.id]:e.target.value}))}
+                        placeholder={`Enter count in ${item.unit}`}
+                        style={{flex:1,background:C.faint,border:`1px solid ${counted!==undefined&&counted!==""?C.primary:C.border}`,borderRadius:8,color:C.black,padding:"12px 14px",fontSize:16,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                      <span style={{fontSize:13,color:C.muted,flexShrink:0}}>{item.unit}</span>
+                    </div>
+                  </div>
+                )
+              })}
+              <Btn onClick={submitStockTake} disabled={saving} size="lg" style={{width:"100%"}}>
+                {saving?"Submitting…":"✓ Submit Stock Take"}
+              </Btn>
+            </div>
+          )}
+        </>
+      )}
+
+      {tab==="setup"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontSize:13,color:C.muted,marginBottom:4}}>Select which inventory items staff must count during daily stock take:</div>
+          {inventory.length===0?(
+            <Empty icon="📦" title="No inventory items" message="Add items in Inventory first"/>
+          ):inventory.map(item=>(
+            <div key={item.id} onClick={async()=>{
+              await supabase.from("bb_inventory").update({require_stocktake:!item.require_stocktake}).eq("id",item.id)
+              await refreshInv()
+            }} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",background:C.surface,border:`1px solid ${item.require_stocktake?C.primary:C.border}`,borderRadius:10,cursor:"pointer",transition:"all 0.15s"}}>
+              <div style={{width:20,height:20,borderRadius:4,border:`2px solid ${item.require_stocktake?C.primary:C.border}`,background:item.require_stocktake?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                {item.require_stocktake&&<span style={{color:"#fff",fontSize:11}}>✓</span>}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:C.black}}>{item.name}</div>
+                <div style={{fontSize:12,color:C.muted}}>Current: {item.stock} {item.unit} · Reorder at: {item.reorder_level} {item.unit}</div>
+              </div>
+              {item.require_stocktake&&<Chip color="primary" size="sm">Required</Chip>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab==="history"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontSize:13,color:C.muted}}>Recent stock takes from shifts</div>
+          {shifts.filter(s=>s.stocktake_done).sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,10).map(s=>(
+            <div key={s.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:600,color:C.black}}>{s.date}</div>
+                <div style={{fontSize:12,color:C.muted}}>Completed at {s.stocktake_at?new Date(s.stocktake_at).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"}):"—"}</div>
+              </div>
+              <Chip color="primary" size="sm">✓ Done</Chip>
+            </div>
+          ))}
+          {shifts.filter(s=>s.stocktake_done).length===0&&<Empty icon="📋" title="No stock takes yet" message="Completed stock takes will appear here"/>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INCOME TRACKING (non-sales income like wifi contributions, rent from tenants)
+// ══════════════════════════════════════════════════════════════════════════════
+function IncomeModule() {
+  const business = useBusiness()
+  const {data:incomes, refresh} = useData("bb_incomes")
+  const [modal, setModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const [iDesc, setIDesc] = useState("")
+  const [iAmt, setIAmt] = useState("")
+  const [iDate, setIDate] = useState(new Date().toISOString().slice(0,10))
+  const [iFrom, setIFrom] = useState("")
+  const [iRecur, setIRecur] = useState(false)
+  const [iRecurInterval, setIRecurInterval] = useState("monthly")
+  const [iPaid, setIPaid] = useState(false)
+
+  const openNew = () => { setIDesc(""); setIAmt(""); setIDate(new Date().toISOString().slice(0,10)); setIFrom(""); setIRecur(false); setIRecurInterval("monthly"); setIPaid(false); setModal(true) }
+
+  const save = async () => {
+    setSaving(true)
+    await supabase.from("bb_incomes").insert({
+      id:uid(), business_id:business.id,
+      description:iDesc.trim(), amount:parseFloat(iAmt)||0,
+      date:iDate, received_from:iFrom, is_recurring:iRecur,
+      recur_interval:iRecur?iRecurInterval:null,
+      status:iPaid?"paid":"pending"
+    })
+    await refresh(); setSaving(false); setModal(false)
+  }
+
+  const markPaid = async (id) => {
+    await supabase.from("bb_incomes").update({status:"paid",paid_date:new Date().toISOString().slice(0,10)}).eq("id",id)
+    await refresh()
+  }
+
+  const del = async (id) => {
+    if(!confirm("Delete this income entry?")) return
+    await supabase.from("bb_incomes").delete().eq("id",id); await refresh()
+  }
+
+  const pending = incomes.filter(i=>i.status==="pending")
+  const totalReceived = incomes.filter(i=>i.status==="paid").reduce((s,i)=>s+parseFloat(i.amount||0),0)
+  const totalPending  = pending.reduce((s,i)=>s+parseFloat(i.amount||0),0)
+
+  return (
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Other Income</div>
+          <div style={{fontSize:13,color:C.muted}}>WiFi contributions, rent, etc.</div>
+        </div>
+        <Btn onClick={openNew}>+ Add Income</Btn>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14}}>
+        <KPI label="Received" value={fmt(totalReceived)} color={C.primary} icon="💰"/>
+        <KPI label="Pending" value={fmt(totalPending)} color={C.amber} icon="⏳"/>
+        <KPI label="Overdue" value={pending.filter(i=>i.date<new Date().toISOString().slice(0,10)).length} color={C.red} icon="⚠"/>
+      </div>
+
+      {pending.length>0&&(
+        <div style={{background:C.amberPale,border:`1px solid ${C.amber}30`,borderRadius:12,padding:16}}>
+          <div style={{fontWeight:700,color:C.amber,fontSize:14,marginBottom:10}}>⏳ Awaiting Payment</div>
+          {pending.map(i=>(
+            <div key={i.id} style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,padding:"10px 14px",background:"#fff",borderRadius:8,border:`1px solid ${C.border}`}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:C.black}}>{i.description}</div>
+                <div style={{fontSize:12,color:C.muted}}>From: {i.received_from||"—"} · Due: {i.date}</div>
+              </div>
+              <div style={{fontSize:15,fontWeight:700,color:C.amber}}>{fmt(i.amount)}</div>
+              <Btn size="sm" onClick={()=>markPaid(i.id)}>✓ Mark Paid</Btn>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+        {incomes.length===0
+          ? <Empty icon="💰" title="No income entries" message='Add recurring income like WiFi contributions or rental payments' action={<Btn onClick={openNew}>+ Add Income</Btn>}/>
+          : <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{borderBottom:`2px solid ${C.border}`,background:C.faint}}>
+                {["Date","Description","From","Amount","Recurring","Status",""].map(h=>(
+                  <th key={h} style={{padding:"12px 14px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase"}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {[...incomes].sort((a,b)=>b.date.localeCompare(a.date)).map(i=>(
+                  <tr key={i.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <td style={{padding:"12px 14px",fontSize:13,color:C.muted}}>{i.date}</td>
+                    <td style={{padding:"12px 14px",fontSize:14,fontWeight:600,color:C.black}}>{i.description}</td>
+                    <td style={{padding:"12px 14px",fontSize:13,color:C.muted}}>{i.received_from||"—"}</td>
+                    <td style={{padding:"12px 14px",fontSize:15,fontWeight:700,color:C.primary}}>{fmt(i.amount)}</td>
+                    <td style={{padding:"12px 14px"}}>{i.is_recurring?<Chip color="blue" size="sm">{i.recur_interval}</Chip>:"—"}</td>
+                    <td style={{padding:"12px 14px"}}>
+                      <Chip color={i.status==="paid"?"primary":"amber"} size="sm">{i.status}</Chip>
+                    </td>
+                    <td style={{padding:"12px 14px"}}>
+                      <div style={{display:"flex",gap:6}}>
+                        {i.status==="pending"&&<Btn size="sm" onClick={()=>markPaid(i.id)}>✓ Paid</Btn>}
+                        <Btn variant="danger" size="sm" onClick={()=>del(i.id)}>🗑</Btn>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+        }
+      </div>
+
+      {modal&&(
+        <Modal title="Add Income Entry" onClose={()=>setModal(false)} width={460}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <Input label="Description" value={iDesc} onChange={e=>setIDesc(e.target.value)} placeholder="e.g. WiFi contribution — Shop Next Door" required/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Input label="Amount (R)" type="number" value={iAmt} onChange={e=>setIAmt(e.target.value)} required/>
+              <Input label="Expected Date" type="date" value={iDate} onChange={e=>setIDate(e.target.value)}/>
+              <Input label="Received From" value={iFrom} onChange={e=>setIFrom(e.target.value)} placeholder="Who pays this?" style={{gridColumn:"1/-1"}}/>
+            </div>
+            <Toggle value={iRecur} onChange={setIRecur} label="Recurring income"/>
+            {iRecur&&(
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Repeats every</label>
+                <select value={iRecurInterval} onChange={e=>setIRecurInterval(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                  <option value="weekly">Week</option>
+                  <option value="monthly">Month</option>
+                  <option value="yearly">Year</option>
+                </select>
+              </div>
+            )}
+            <Toggle value={iPaid} onChange={setIPaid} label="Already received (mark as paid)"/>
+            <div style={{display:"flex",gap:10}}>
+              <Btn onClick={save} disabled={saving||!iDesc.trim()||!iAmt} style={{flex:1}} size="lg">{saving?"Saving…":"Save"}</Btn>
+              <Btn variant="secondary" onClick={()=>setModal(false)} style={{flex:1}} size="lg">Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
