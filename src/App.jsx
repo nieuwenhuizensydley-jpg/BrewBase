@@ -3650,9 +3650,7 @@ function ShiftsModule() {
     // Check if stock take is required and done
     const {data:inv} = await supabase.from("bb_inventory").select("id").eq("business_id",business.id).eq("require_stocktake",true)
     if(inv&&inv.length>0&&!openShift.stocktake_done) {
-      alert("Stock take must be completed before closing the shift.
-
-Go to Stock Take in the sidebar to complete it.")
+      alert("Stock take must be completed before closing the shift. Go to Stock Take in the sidebar to complete it.")
       return
     }
     setSaving(true)
