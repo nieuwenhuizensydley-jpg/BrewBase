@@ -1650,7 +1650,7 @@ function POSModule() {
       {/* ── RIGHT: Ticket ── */}
       <div style={{ width: checkoutOpen ? "100%" : 320, display: "flex", flexDirection: "column", background: C.surface, flexShrink: 0, overflow: "hidden" }}>
         {/* Ticket header */}
-        <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, background: "#fff" }}>
+        <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, background: "#fff", flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             {checkoutOpen
               ? <button onClick={() => setCheckoutOpen(false)} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 14, fontWeight: 600, padding: 0, display: "flex", alignItems: "center", gap: 4 }}>← Back</button>
@@ -1720,7 +1720,7 @@ function POSModule() {
 
         {/* Footer: totals + charge */}
         {cart.length > 0 && (
-          <div style={{ borderTop: `1px solid ${C.border}`, padding: "14px 16px", background: "#fff" }}>
+          <div style={{ borderTop: `1px solid ${C.border}`, padding: "14px 16px", background: "#fff", overflowY: checkoutOpen ? "auto" : "visible", flex: checkoutOpen ? 1 : "none" }}>
             {done ? (
               <div style={{ textAlign: "center", padding: "16px 0" }}>
                 <div style={{ fontSize: 48 }}>✅</div>
@@ -1761,8 +1761,8 @@ function POSModule() {
                 </div>
               </>
             ) : (
-              /* CHECKOUT PANEL */
-              <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 440, margin: "0 auto", overflowY: "auto", maxHeight: "60vh" }}>
+              /* CHECKOUT PANEL - full scroll */
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 540, margin: "0 auto", width: "100%", paddingBottom: 20 }}>
                 <div style={{ textAlign: "center", paddingBottom: 8 }}>
                   <div style={{ fontSize: 36, fontWeight: 800, color: C.black, fontFamily: "Playfair Display,serif" }}>{fmt(total)}</div>
                   <div style={{ fontSize: 13, color: C.muted }}>Total amount due</div>
@@ -4372,11 +4372,23 @@ function PrinterModule() {
   const getSettings = () => ({ storeName, tagline, phone, footer1, footer2, showTipLine, showTotalLine })
 
   const connectPrinter = async () => {
+    // Check Web Bluetooth support first
+    if(!navigator.bluetooth) {
+      alert("Web Bluetooth is not supported on this device.\n\nMake sure you are using Chrome browser. If using the BrewBase app, ensure Bluetooth permission is granted in:\nSettings → Apps → BrewBase → Permissions → Bluetooth")
+      return
+    }
     setConnecting(true)
-    const ok = await BB_PRINTER.connect()
-    setConnected(ok)
+    try {
+      const ok = await BB_PRINTER.connect()
+      setConnected(ok)
+      if(ok) {
+        // Save device name to localStorage
+        localStorage.setItem("bb_printer_name", BB_PRINTER.device?.name||"Printer")
+      }
+    } catch(e) {
+      console.error("Printer connect error:", e)
+    }
     setConnecting(false)
-    if(!ok) alert("Could not connect to printer. Make sure Bluetooth is on and the printer is nearby.")
   }
 
   const disconnectPrinter = () => {
@@ -4445,6 +4457,18 @@ function PrinterModule() {
         <div style={{marginTop:14,padding:"10px 14px",background:C.faint,borderRadius:8,fontSize:13,color:C.muted}}>
           💡 Make sure your printer is <strong>turned on</strong> and in <strong>pairing/discoverable mode</strong>. On Android, also go to <strong>Settings → Apps → BrewBase → Permissions</strong> and enable Bluetooth. Keep printer within 5 metres.
         </div>
+        {!connected&&(
+          <div style={{marginTop:10,padding:"10px 14px",background:"#e8f0f8",borderRadius:8,fontSize:13,color:"#3a6b9a"}}>
+            <strong>Android users:</strong> If Bluetooth connect does nothing or shows an error:
+            <ol style={{margin:"6px 0 0",paddingLeft:20,lineHeight:2}}>
+              <li>Open your Android <strong>Settings</strong></li>
+              <li>Go to <strong>Apps → BrewBase</strong></li>
+              <li>Tap <strong>Permissions</strong></li>
+              <li>Enable <strong>Bluetooth</strong> and <strong>Nearby devices</strong></li>
+              <li>Come back and tap Connect Printer</li>
+            </ol>
+          </div>
+        )}
       </div>
 
       {/* Kitchen categories */}
