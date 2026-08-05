@@ -86,6 +86,30 @@ let _lang = localStorage.getItem("bb_lang")||"en"
 const t = (key) => LANG[_lang]?.[key]||LANG.en[key]||key
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
 
+// ── Inject responsive CSS ────────────────────────────────────────────────────
+if(typeof document !== "undefined") {
+  const style = document.createElement("style")
+  style.textContent = `
+    @media (max-width: 767px) and (orientation: portrait) {
+      .bb-app-shell { flex-direction: column !important; }
+      .bb-sidebar { display: none !important; }
+      .bb-bottom-nav { display: flex !important; }
+      .bb-auth-layout { flex-direction: column !important; }
+      .bb-auth-left { width: 100% !important; min-height: auto !important; padding: 24px 20px !important; }
+      .bb-auth-right { padding: 24px 20px !important; }
+      .bb-auth-logo { width: 80px !important; height: 80px !important; }
+      .bb-auth-title { font-size: 24px !important; }
+    }
+    @media (min-width: 768px), (orientation: landscape) {
+      .bb-bottom-nav { display: none !important; }
+      .bb-sidebar { display: flex !important; }
+    }
+    .bb-bottom-nav { display: none; }
+  `
+  document.head.appendChild(style)
+}
+
+
 // ── Error Boundary ──────────────────────────────────────────────────────────
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = {error:null} }
@@ -533,14 +557,17 @@ function AuthScreen({onAuthed}) {
 
   // Welcome screen
   if(mode==="welcome") return (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:window.innerWidth<640?"column":"row"}}>
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:window.matchMedia("(max-width:640px)").matches?"column":"row"}}>
       {/* Left panel - branding */}
-      <div style={{width:window.innerWidth<640?"100%":"45%",background:C.sidebar,display:"flex",flexDirection:"column",justifyContent:"center",padding:window.innerWidth<640?"32px 24px":"48px 56px"}}>
-        <div style={{marginBottom:window.innerWidth<640?16:32,display:"flex",justifyContent:window.innerWidth<640?"center":"flex-start"}}>
-          <img src={LOGO_LG} alt="BrewBase" style={{width:window.innerWidth<640?100:180,height:window.innerWidth<640?100:180,objectFit:"contain"}}/>
+      {(()=>{
+        const sm = window.matchMedia("(max-width:640px)").matches
+        return(
+      <div style={{width:sm?"100%":"45%",background:C.sidebar,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:sm?"center":"flex-start",padding:sm?"24px 20px":"48px 56px"}}>
+        <div style={{marginBottom:sm?16:32}}>
+          <img src={LOGO_LG} alt="BrewBase" style={{width:sm?90:180,height:sm?90:180,objectFit:"contain"}}/>
         </div>
-        <div style={{marginTop:window.innerWidth<640?16:48,textAlign:window.innerWidth<640?"center":"left"}}>
-          <h1 style={{fontSize:window.innerWidth<640?26:38,fontWeight:800,color:"#fff",margin:"0 0 16px",fontFamily:"Playfair Display,serif",lineHeight:1.2}}>
+        <div style={{marginTop:sm?12:48,textAlign:sm?"center":"left"}}>
+          <h1 style={{fontSize:sm?24:38,fontWeight:800,color:"#fff",margin:"0 0 12px",fontFamily:"Playfair Display,serif",lineHeight:1.2}}>
             Smart POS.<br/>Stronger Cafés.
           </h1>
           <p style={{fontSize:15,color:"rgba(255,255,255,.55)",lineHeight:1.7,marginBottom:40}}>
@@ -561,8 +588,10 @@ function AuthScreen({onAuthed}) {
           <div style={{fontSize:12,color:"rgba(255,255,255,.3)",letterSpacing:1}}>BUILT FOR CAFÉS. DESIGNED FOR GROWTH.</div>
         </div>
       </div>
+        )
+      })()}
       {/* Right panel - actions */}
-      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:48}}>
+      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:window.matchMedia("(max-width:640px)").matches?"24px 20px":"48px"}}>
         <div style={{maxWidth:380,width:"100%"}}>
           <h2 style={{fontSize:28,fontWeight:800,color:C.black,margin:"0 0 8px",fontFamily:"Playfair Display,serif"}}>Get started today</h2>
           <p style={{color:C.muted,marginBottom:36,fontSize:14}}>14-day free trial. No credit card required.</p>
@@ -813,8 +842,10 @@ function StaffLogin({business, onLogin}) {
 const NAV_ITEMS = [
   {id:"dashboard",      icon:"📊", label:()=>t("dashboard"),       roles:["owner","manager","barista","cashier"]},
   {id:"pos",            icon:"🛒", label:()=>t("pos"),             roles:["owner","manager","barista","cashier"]},
-  {id:"orders",         icon:"📋", label:()=>t("orders"),          roles:["owner","manager"]},
+  {id:"notes",          icon:"📝", label:"Staff Notes",              roles:["owner","manager","barista","cashier"]},
   {id:"shifts",         icon:"🕐", label:()=>t("shifts"),          roles:["owner","manager","barista","cashier"]},
+  {id:"stocktake",      icon:"📋", label:"Stock Take",              roles:["owner","manager","barista","cashier"]},
+  {id:"orders",         icon:"📋", label:()=>t("orders"),          roles:["owner","manager"]},
   {id:"menu",           icon:"☕", label:()=>t("menu"),            roles:["owner","manager"]},
   {id:"inventory",      icon:"📦", label:()=>t("inventory"),       roles:["owner","manager"]},
   {id:"staff",          icon:"👥", label:()=>t("staff"),           roles:["owner","manager"]},
@@ -887,16 +918,20 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
   const [pinPromptDone, setPinPromptDone] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
-  // Detect phone vs tablet
-  const [isPhone, setIsPhone] = useState(window.innerWidth < 768)
-  const [isPortrait, setIsPortrait] = useState(window.innerHeight > window.innerWidth)
+  // Detect phone vs tablet using matchMedia (more reliable on Android)
+  const phoneQuery   = window.matchMedia("(max-width: 767px)")
+  const portraitQuery = window.matchMedia("(orientation: portrait)")
+  const [isPhone,    setIsPhone]    = useState(phoneQuery.matches)
+  const [isPortrait, setIsPortrait] = useState(portraitQuery.matches)
   useEffect(()=>{
-    const handle = () => {
-      setIsPhone(window.innerWidth < 768)
-      setIsPortrait(window.innerHeight > window.innerWidth)
+    const handlePhone   = (e) => setIsPhone(e.matches)
+    const handlePortrait = (e) => setIsPortrait(e.matches)
+    phoneQuery.addEventListener("change", handlePhone)
+    portraitQuery.addEventListener("change", handlePortrait)
+    return () => {
+      phoneQuery.removeEventListener("change", handlePhone)
+      portraitQuery.removeEventListener("change", handlePortrait)
     }
-    window.addEventListener("resize", handle)
-    return () => window.removeEventListener("resize", handle)
   },[])
   const showSidebar = !isPhone || !isPortrait
 
@@ -1265,7 +1300,7 @@ function POSModule() {
 
   // Combine menu items + combos - sorted alphabetically
   const allItems = [
-    ...menuItems.sort((a,b)=>(a.name||"").localeCompare(b.name||"")),
+    ...menuItems.sort((a,b)=>(a.name||"").localeCompare(b.name||"","en",{sensitivity:"base"})),
     ...combos.map(c=>({...c, isCombo:true, emoji:"🎁", category_id:"combo", active:true}))
   ]
   // Filter menu items (including time-of-day availability)
@@ -1562,7 +1597,7 @@ function POSModule() {
   const itemPreviewPrice = selItem ? parseFloat(selItem.price) + computeExtra() : 0
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden", background: C.bg }}>
+    <div style={{ display: "flex", height: "100%", overflow: "hidden", background: C.bg, flexDirection: window.matchMedia("(max-width:767px)").matches && window.matchMedia("(orientation:portrait)").matches ? "column" : "row" }}>
       {/* ── LEFT: Menu ── */}
       {!checkoutOpen && (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", borderRight: `1px solid ${C.border}` }}>
@@ -1584,7 +1619,7 @@ function POSModule() {
           </div>
 
           {/* Item grid */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 10, alignContent: "start" }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(140px,140px))", gap: 10, alignContent: "start", justifyContent: "start" }}>
             {filtered.map(item => (
               <button key={item.id} onClick={() => openItem(item)}
                 style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 0, cursor: "pointer", textAlign: "left", overflow: "hidden", transition: "all 0.15s", fontFamily: "Inter,sans-serif", display: "flex", flexDirection: "column" }}
@@ -1653,12 +1688,12 @@ function POSModule() {
           <div style={{ fontSize: 12, color: C.light, marginTop: 6 }}>{staff?.name} · {cart.length} item{cart.length !== 1 ? "s" : ""}</div>
         </div>
 
-        {/* Cart items */}
+        {/* Cart items + checkout content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px" }} onClick={() => setOptMenuOpen(false)}>
           {cart.length === 0 && !checkoutOpen && (
             <Empty icon="🛒" title="Empty ticket" message="Tap items on the left to add them"/>
           )}
-          {cart.map(item => (
+          {!checkoutOpen && cart.map(item => (
             <div key={item.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: C.black, flex: 1 }}>{item.name}</div>
@@ -1680,6 +1715,7 @@ function POSModule() {
               )}
             </div>
           ))}
+
         </div>
 
         {/* Footer: totals + charge */}
@@ -1726,7 +1762,7 @@ function POSModule() {
               </>
             ) : (
               /* CHECKOUT PANEL */
-              <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 440, margin: "0 auto" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 440, margin: "0 auto", overflowY: "auto", maxHeight: "60vh" }}>
                 <div style={{ textAlign: "center", paddingBottom: 8 }}>
                   <div style={{ fontSize: 36, fontWeight: 800, color: C.black, fontFamily: "Playfair Display,serif" }}>{fmt(total)}</div>
                   <div style={{ fontSize: 13, color: C.muted }}>Total amount due</div>
@@ -2303,7 +2339,7 @@ function MenuModule() {
     await refreshGroups(); await refreshOpts()
   }
 
-  const filteredItems = filterCat==="all"?items:items.filter(i=>i.category_id===filterCat)
+  const filteredItems = (filterCat==="all"?items:[...items].filter(i=>i.category_id===filterCat)).sort((a,b)=>(a.name||"").localeCompare(b.name||"","en",{sensitivity:"base"}))
 
   return (
     <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
