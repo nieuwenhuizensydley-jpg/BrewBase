@@ -4256,13 +4256,6 @@ const BB_PRINTER = {
         return false
       }
 
-      // Check if Bluetooth is available
-      const available = await navigator.bluetooth.getAvailability().catch(()=>true)
-      if(!available) {
-        alert("Bluetooth is not available. Please:\n1. Turn on Bluetooth in your phone settings\n2. Make sure BrewBase has Bluetooth permission\n3. Try again")
-        return false
-      }
-
       // Request permission and select device
       this.device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
