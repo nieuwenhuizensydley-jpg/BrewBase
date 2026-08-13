@@ -1619,22 +1619,22 @@ function POSModule() {
           </div>
 
           {/* Item grid */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gridAutoRows: "min-content", gap: 10, alignContent: "start" }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 12, alignContent: "start" }}>
             {filtered.map(item => (
               <button key={item.id} onClick={() => openItem(item)}
-                style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 0, cursor: "pointer", textAlign: "left", overflow: "hidden", transition: "all 0.15s", fontFamily: "Inter,sans-serif", display: "flex", flexDirection: "column" }}
-                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,.08)" }}
+                style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 0, cursor: "pointer", textAlign: "left", overflow: "hidden", transition: "all 0.15s", fontFamily: "Inter,sans-serif", display: "flex", flexDirection: "column", minHeight: 140 }}
+                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,.1)" }}
                 onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "" }}>
                 {/* Image or emoji */}
-                <div style={{ height: 90, background: C.faint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, overflow: "hidden" }}>
+                <div style={{ height: 100, background: C.faint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48, overflow: "hidden", flexShrink: 0 }}>
                   {item.image_url
                     ? <img src={item.image_url} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    : item.emoji || "☕"}
+                    : <span style={{ fontSize: 48, fontWeight: 700, color: C.muted }}>{item.emoji || item.name?.slice(0,1)}</span>}
                 </div>
-                <div style={{ padding: "10px 12px 12px" }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: C.black, lineHeight: 1.3, marginBottom: 4 }}>{item.name}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: C.primary }}>{fmt(item.price)}</div>
-                  {item.track_stock && <div style={{ fontSize: 11, color: parseFloat(item.stock) < 5 ? C.red : C.light, marginTop: 2 }}>{item.stock} left</div>}
+                <div style={{ padding: "10px 14px 14px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: C.black, lineHeight: 1.3, marginBottom: 6 }}>{item.name}</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: C.primary }}>{fmt(item.price)}</div>
+                  {item.track_stock && <div style={{ fontSize: 11, color: parseFloat(item.stock) <= 0 ? C.red : parseFloat(item.stock) < 5 ? C.amber : C.light, marginTop: 4, fontWeight: parseFloat(item.stock) <= 0 ? 700 : 400 }}>{parseFloat(item.stock) <= 0 ? "❌ Out of stock" : `${item.stock} left`}</div>}
                 </div>
               </button>
             ))}
@@ -1689,7 +1689,7 @@ function POSModule() {
         </div>
 
         {/* Cart items + checkout content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px" }} onClick={() => setOptMenuOpen(false)}>
+        <div style={{ flex: checkoutOpen ? 0 : 1, overflowY: "auto", padding: "12px 14px", display: checkoutOpen ? "none" : "block" }} onClick={() => setOptMenuOpen(false)}>
           {cart.length === 0 && !checkoutOpen && (
             <Empty icon="🛒" title="Empty ticket" message="Tap items on the left to add them"/>
           )}
