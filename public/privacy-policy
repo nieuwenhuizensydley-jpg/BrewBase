@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BrewBase Privacy Policy</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; background: #f5f3ef; color: #0e0e0e; line-height: 1.7; }
+  .header { background: #0e0e0e; color: #fff; padding: 40px 24px; text-align: center; }
+  .logo { font-size: 32px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+  .logo span { color: #4a7c59; }
+  .tagline { font-size: 13px; color: rgba(255,255,255,0.5); letter-spacing: 2px; text-transform: uppercase; }
+  .updated { background: #4a7c59; color: #fff; text-align: center; padding: 10px; font-size: 13px; font-weight: 600; }
+  .container { max-width: 760px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 800; margin: 0 0 24px; }
+  h2 { font-size: 18px; font-weight: 700; margin: 32px 0 12px; border-left: 4px solid #4a7c59; padding-left: 12px; }
+  h3 { font-size: 15px; font-weight: 700; margin: 16px 0 8px; }
+  p { margin-bottom: 12px; color: #333; font-size: 15px; }
+  ul, ol { padding-left: 24px; margin-bottom: 12px; }
+  li { margin-bottom: 6px; color: #333; font-size: 15px; }
+  .card { background: #fff; border-radius: 12px; padding: 20px 24px; margin-bottom: 16px; border: 1px solid #e4e0da; }
+  .highlight { background: #edf7f0; border: 1px solid rgba(74,124,89,0.3); border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+  .warning { background: #fff5f5; border: 1px solid rgba(214,69,69,0.3); border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 14px; }
+  th { background: #f0ede8; padding: 10px 14px; text-align: left; font-weight: 700; }
+  td { padding: 10px 14px; border-bottom: 1px solid #e4e0da; }
+  a { color: #4a7c59; }
+  .delete-btn { display: inline-block; background: #d64545; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 14px; margin-top: 8px; }
+  .contact-box { background: #0e0e0e; color: #fff; border-radius: 12px; padding: 24px; margin-top: 32px; }
+  .contact-box a { color: #4a7c59; }
+  .contact-box h2 { color: #fff; margin-top: 0; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">Brew<span>Base</span></div>
+  <div class="tagline">Smart POS · Stronger Cafés</div>
+</div>
+<div class="updated">Privacy Policy — Last updated: August 2026</div>
+<div class="container">
+<h1>Privacy Policy</h1>
+<div class="highlight">This privacy policy applies to the <strong>BrewBase</strong> application (Android: <strong>za.co.brewbase.pos</strong>) developed by <strong>NovaNest Studios</strong>, operated by Sydley Nieuwenhuizen, South Africa.</div>
+
+<h2>1. Who We Are</h2>
+<div class="card">
+<p><strong>Developer:</strong> NovaNest Studios</p>
+<p><strong>Owner:</strong> Sydley Nieuwenhuizen</p>
+<p><strong>Country:</strong> South Africa</p>
+<p><strong>Email:</strong> <a href="mailto:support@brewbase.co.za">support@brewbase.co.za</a></p>
+</div>
+
+<h2>2. Information We Collect</h2>
+<div class="card">
+<h3>Information you provide:</h3>
+<ul>
+<li>Business name, email, phone number, address</li>
+<li>Staff names, roles, PIN codes, work hours</li>
+<li>Menu items, prices, categories</li>
+<li>Sales orders, payment methods, amounts</li>
+<li>Customer names and phone numbers (loyalty programme only)</li>
+<li>Expense records, income entries, financial data</li>
+<li>Inventory stock levels, supplier names</li>
+<li>Receipt photos (for OCR expense scanning only)</li>
+</ul>
+<h3>Collected automatically:</h3>
+<ul>
+<li>Device type and operating system version</li>
+<li>Authentication session tokens</li>
+<li>App activity timestamps</li>
+</ul>
+</div>
+
+<h2>3. Device Permissions</h2>
+<div class="card">
+<table>
+<tr><th>Permission</th><th>Purpose</th><th>Optional?</th></tr>
+<tr><td><strong>Bluetooth / Nearby Devices</strong></td><td>Connect to receipt printers</td><td>Yes — printing unavailable if denied</td></tr>
+<tr><td><strong>Camera</strong></td><td>Photograph expense receipts for scanning</td><td>Yes — OCR unavailable if denied</td></tr>
+<tr><td><strong>Location (Coarse)</strong></td><td>Required by Android for Bluetooth scanning only — not used for tracking</td><td>Yes — Bluetooth unavailable if denied</td></tr>
+<tr><td><strong>Internet</strong></td><td>Sync data with secure cloud database</td><td>No — required for app to function</td></tr>
+<tr><td><strong>Wake Lock</strong></td><td>Keep screen on during active shift</td><td>Yes</td></tr>
+</table>
+<div class="highlight" style="margin-top:12px;margin-bottom:0;"><strong>We do NOT use location data to track users.</strong> It is only requested because Android requires it for Bluetooth device scanning.</div>
+</div>
+
+<h2>4. How We Use Your Data</h2>
+<div class="card">
+<ul>
+<li>To operate the BrewBase POS service</li>
+<li>To process subscription payments via PayFast</li>
+<li>To generate business reports and analytics for your business only</li>
+<li>To enable OCR extraction from receipt photos</li>
+<li>To maintain loyalty customer records</li>
+<li>To track shifts and staff performance</li>
+<li>To send account and service notifications</li>
+</ul>
+</div>
+
+<h2>5. Data Storage and Security</h2>
+<div class="card">
+<ul>
+<li>All data stored on <strong>Supabase</strong> (AWS infrastructure, United States)</li>
+<li>Encrypted in transit (TLS/HTTPS) and at rest (AES-256)</li>
+<li>Row-level security — each business accesses only its own data</li>
+<li>We never store card payment details — payments handled by PayFast</li>
+<li>Receipt photos are not permanently stored after OCR processing</li>
+</ul>
+</div>
+
+<h2>6. Third-Party Services</h2>
+<div class="card">
+<table>
+<tr><th>Service</th><th>Purpose</th><th>Privacy Policy</th></tr>
+<tr><td>Supabase</td><td>Database and authentication</td><td><a href="https://supabase.com/privacy">supabase.com/privacy</a></td></tr>
+<tr><td>PayFast</td><td>Payment processing</td><td><a href="https://payfast.io/privacy">payfast.io/privacy</a></td></tr>
+<tr><td>Anthropic Claude API</td><td>OCR receipt scanning</td><td><a href="https://www.anthropic.com/privacy">anthropic.com/privacy</a></td></tr>
+<tr><td>Vercel</td><td>Web hosting</td><td><a href="https://vercel.com/legal/privacy-policy">vercel.com/legal</a></td></tr>
+</table>
+</div>
+
+<h2>7. Data Sharing</h2>
+<div class="card">
+<p>We <strong>do not sell</strong> your personal data to any third party, ever.</p>
+<p>Data is only shared with the third-party services listed above to operate the app, or if required by South African law.</p>
+</div>
+
+<h2>8. Data Retention</h2>
+<div class="card">
+<ul>
+<li>Data retained while your account is active</li>
+<li>All data permanently deleted within 30 days of account deletion</li>
+<li>Backups retained for up to 7 days for disaster recovery</li>
+</ul>
+</div>
+
+<h2>9. Your Rights</h2>
+<div class="card">
+<p>You have the right to access, correct, delete, export, and object to processing of your data. Contact <a href="mailto:support@brewbase.co.za">support@brewbase.co.za</a> — we respond within 30 days.</p>
+</div>
+
+<h2>10. Account and Data Deletion</h2>
+<div class="warning"><strong>Account deletion is permanent and cannot be undone.</strong></div>
+<div class="card">
+<p><strong>Option 1 — In the app:</strong> Settings → scroll to bottom → Delete Account</p>
+<p><strong>Option 2 — By email:</strong></p>
+<a href="mailto:support@brewbase.co.za?subject=Account Deletion Request&body=Please delete my BrewBase account. My registered email is: " class="delete-btn">📧 Request Account Deletion</a>
+<p style="margin-top:12px;color:#666;font-size:14px;">We will confirm deletion within 48 hours.</p>
+</div>
+
+<h2>11. Children</h2>
+<div class="card"><p>BrewBase is for adults (18+) only. We do not knowingly collect data from children under 18.</p></div>
+
+<h2>12. Changes to This Policy</h2>
+<div class="card"><p>We will notify you of significant changes by email and in-app notification. Continued use after changes constitutes acceptance.</p></div>
+
+<h2>13. Applicable Law</h2>
+<div class="card">
+<p>Governed by South African law and the <strong>Protection of Personal Information Act (POPIA)</strong>. Complaints may be submitted to the <a href="https://www.inforegulator.org.za">Information Regulator of South Africa</a>.</p>
+</div>
+
+<div class="contact-box">
+<h2>Contact Us</h2>
+<p style="color:rgba(255,255,255,0.7);margin-bottom:12px;">Privacy questions, data requests, or account deletion:</p>
+<p><strong style="color:#4a7c59;">Email:</strong> <a href="mailto:support@brewbase.co.za">support@brewbase.co.za</a></p>
+<p><strong style="color:#4a7c59;">Developer:</strong> NovaNest Studios, South Africa</p>
+<p><strong style="color:#4a7c59;">Response time:</strong> Within 48 hours</p>
+</div>
+
+</div>
+</body>
+</html>
