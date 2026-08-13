@@ -1520,17 +1520,44 @@ function POSModule() {
         await supabase.from("bb_open_tabs").delete().eq("id", activeTabId)
         await refreshTabs()
       }
-      // Deduct stock from inventory for tracked items
+      // Deduct stock from inventory using ingredient links
       try {
         const soldItems = typeof order.items==="string"?JSON.parse(order.items||"[]"):order.items||[]
-        for(const soldItem of soldItems) {
-          const {data:invItems} = await supabase.from("bb_inventory").select("*")
-            .eq("business_id",business.id).ilike("name",soldItem.name).limit(1)
-          if(invItems?.[0]?.track_stock!==false) {
-            // Also check menu items
+        // Get all ingredient links for sold items
+        const menuItemIds = soldItems.map(si=>menuItems.find(m=>m.name===si.name)?.id).filter(Boolean)
+        if(menuItemIds.length>0) {
+          const {data:links} = await supabase.from("bb_ingredient_links")
+            .select("*").eq("business_id",business.id).in("menu_item_id",menuItemIds)
+          if(links&&links.length>0) {
+            // Group deductions by inventory item
+            const deductions = {}
+            for(const soldItem of soldItems) {
+              const menuItem = menuItems.find(m=>m.name===soldItem.name)
+              if(!menuItem) continue
+              const itemLinks = links.filter(l=>l.menu_item_id===menuItem.id)
+              for(const link of itemLinks) {
+                const qty = (parseFloat(link.quantity)||1)*(soldItem.qty||1)
+                deductions[link.inventory_item_id] = (deductions[link.inventory_item_id]||0) + qty
+              }
+            }
+            // Apply deductions
+            for(const [invId,deductQty] of Object.entries(deductions)) {
+              const {data:invItem} = await supabase.from("bb_inventory").select("stock").eq("id",invId).single()
+              if(invItem) {
+                const newStock = Math.max(0, parseFloat(invItem.stock||0) - deductQty)
+                await supabase.from("bb_inventory").update({stock:newStock}).eq("id",invId)
+                // Log movement
+                await supabase.from("bb_stock_movements").insert({
+                  id:uid(), business_id:business.id, inventory_item_id:invId,
+                  type:"sale", quantity:-deductQty, order_id:order.id,
+                  notes:`Auto-deducted from sale #${String(order.id).slice(-6)}`,
+                  created_at:new Date().toISOString()
+                })
+              }
+            }
           }
         }
-        // Deduct from menu item stock if track_stock enabled
+        // Also deduct from menu item stock if track_stock enabled (direct)
         for(const soldItem of soldItems) {
           const menuItem = menuItems.find(m=>m.name===soldItem.name&&m.track_stock)
           if(menuItem) {
@@ -2714,6 +2741,10 @@ function InventoryModule() {
   const [iReorder,setIReorder] = useState("")
   const [iCost,setICost]       = useState("")
   const [iSupplier,setISupplier] = useState("")
+  const [tab,setTab]           = useState("items") // items | ingredients | movements
+  const [linkModal,setLinkModal] = useState(null) // inventory item being linked
+  const {data:menuItems}       = useData("bb_menu_items")
+  const {data:ingredientLinks,refresh:refreshLinks} = useData("bb_ingredient_links")
 
   const openNew  = () => { setEdit(null); setIName(""); setICat(""); setIUnit("units"); setIStock(""); setIReorder(""); setICost(""); setISupplier(""); setModal(true) }
   const openEdit = (i) => { setEdit(i); setIName(i.name); setICat(i.category||""); setIUnit(i.unit||"units"); setIStock(String(i.stock||"")); setIReorder(String(i.reorder_level||"")); setICost(String(i.cost_per_unit||"")); setISupplier(i.supplier||""); setModal(true) }
@@ -2749,6 +2780,13 @@ function InventoryModule() {
         <Btn onClick={openNew}>+ Add Item</Btn>
       </div>
 
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
+        {[["items","📦 Stock Items"],["ingredients","🔗 Ingredient Links"],["movements","📊 Stock Movements"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 16px",border:"none",background:"transparent",cursor:"pointer",fontSize:14,fontWeight:tab===id?700:400,color:tab===id?C.primary:C.muted,borderBottom:`2px solid ${tab===id?C.primary:"transparent"}`,fontFamily:"Inter,sans-serif",marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+
+      {tab==="items"&&<>
       {lowStock.length>0&&(
         <div style={{background:"#fff5f5",border:`1px solid ${C.red}30`,borderRadius:12,padding:16}}>
           <div style={{fontWeight:700,color:C.red,fontSize:14,marginBottom:8}}>⚠ Low Stock — {lowStock.length} item{lowStock.length!==1?"s":""} need restocking</div>
@@ -2756,7 +2794,25 @@ function InventoryModule() {
             {lowStock.map(i=><Chip key={i.id} color="red">{i.name}: {i.stock} {i.unit}</Chip>)}
           </div>
         </div>
+      )}</>}
+
+      {tab==="ingredients"&&(
+        <IngredientLinksTab
+          items={items}
+          menuItems={menuItems}
+          links={ingredientLinks}
+          business={business}
+          refreshLinks={refreshLinks}
+          linkModal={linkModal}
+          setLinkModal={setLinkModal}
+        />
       )}
+
+      {tab==="movements"&&(
+        <StockMovementsTab items={items} business={business}/>
+      )}
+
+      {tab==="items"&&<>
 
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search inventory…"
         style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}/>
@@ -2802,6 +2858,8 @@ function InventoryModule() {
             </div>
           </div>
       }
+
+      </>}
 
       {modal&&(
         <Modal title={edit?"Edit Inventory Item":"Add Inventory Item"} onClose={()=>setModal(false)} width={460}>
@@ -5252,6 +5310,189 @@ function LoyaltyLookupModal({business, onSelect, onClose}) {
 // ══════════════════════════════════════════════════════════════════════════════
 // WASTE LOG MODULE
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// INGREDIENT LINKS TAB — Link inventory items to menu items
+// ══════════════════════════════════════════════════════════════════════════════
+function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
+  const [selMenuItem, setSelMenuItem] = useState("")
+  const [modal, setModal] = useState(false)
+  const [linkInvId, setLinkInvId] = useState("")
+  const [linkQty, setLinkQty] = useState("1")
+  const [linkUnit, setLinkUnit] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  // Group links by menu item
+  const grouped = menuItems.map(m => ({
+    ...m,
+    links: links.filter(l => l.menu_item_id === m.id)
+  })).filter(m => m.links.length > 0 || selMenuItem === m.id)
+
+  const openLink = (menuItemId) => {
+    setSelMenuItem(menuItemId)
+    setLinkInvId("")
+    setLinkQty("1")
+    setLinkUnit("")
+    setModal(true)
+  }
+
+  const saveLink = async () => {
+    if(!linkInvId||!selMenuItem) return
+    setSaving(true)
+    const invItem = items.find(i=>i.id===linkInvId)
+    await supabase.from("bb_ingredient_links").insert({
+      id:uid(), business_id:business.id,
+      menu_item_id:selMenuItem,
+      inventory_item_id:linkInvId,
+      quantity:parseFloat(linkQty)||1,
+      unit:linkUnit||invItem?.unit||"units"
+    })
+    await refreshLinks()
+    setSaving(false); setModal(false)
+  }
+
+  const deleteLink = async (id) => {
+    await supabase.from("bb_ingredient_links").delete().eq("id",id)
+    await refreshLinks()
+  }
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{background:C.highlight||"#edf7f0",border:`1px solid ${C.primary}30`,borderRadius:12,padding:16,fontSize:13,color:C.black,lineHeight:1.7}}>
+        <strong>How ingredient links work:</strong><br/>
+        Link inventory items to menu items here. When a menu item is sold, the linked ingredients are automatically deducted from stock. Example: link "Cheese Packet" (qty: 1) to "Toasted Cheese Sandwich" — every sandwich sold removes 1 packet from your cheese inventory.
+      </div>
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.black}}>Menu Item → Ingredients</div>
+        <div style={{fontSize:13,color:C.muted}}>{links.length} links configured</div>
+      </div>
+
+      {/* Menu items list with their links */}
+      {menuItems.sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(menuItem=>{
+        const itemLinks = links.filter(l=>l.menu_item_id===menuItem.id)
+        return(
+          <div key={menuItem.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:itemLinks.length>0?`1px solid ${C.border}`:"none"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:20}}>{menuItem.emoji||"☕"}</span>
+                <div>
+                  <div style={{fontSize:14,fontWeight:700,color:C.black}}>{menuItem.name}</div>
+                  <div style={{fontSize:12,color:C.muted}}>{itemLinks.length} ingredient{itemLinks.length!==1?"s":""} linked</div>
+                </div>
+              </div>
+              <Btn size="sm" onClick={()=>openLink(menuItem.id)}>+ Link Ingredient</Btn>
+            </div>
+            {itemLinks.map(link=>{
+              const invItem = items.find(i=>i.id===link.inventory_item_id)
+              return(
+                <div key={link.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:`1px solid ${C.border}`,background:C.faint}}>
+                  <div style={{fontSize:18}}>📦</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:C.black}}>{invItem?.name||"Unknown item"}</div>
+                    <div style={{fontSize:12,color:C.muted}}>Deduct <strong>{link.quantity} {link.unit||invItem?.unit||"units"}</strong> per sale · Current stock: <strong style={{color:parseFloat(invItem?.stock||0)<=parseFloat(invItem?.reorder_level||0)?C.red:C.primary}}>{invItem?.stock||0} {invItem?.unit}</strong></div>
+                  </div>
+                  <button onClick={()=>deleteLink(link.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:4}}>🗑</button>
+                </div>
+              )
+            })}
+            {itemLinks.length===0&&(
+              <div style={{padding:"10px 16px",fontSize:13,color:C.light,fontStyle:"italic"}}>No ingredients linked — stock won't auto-deduct when this item is sold</div>
+            )}
+          </div>
+        )
+      })}
+
+      {menuItems.length===0&&<Empty icon="☕" title="No menu items" message="Add menu items first, then link ingredients"/>}
+
+      {modal&&(
+        <Modal title="Link Ingredient" subtitle={`To: ${menuItems.find(m=>m.id===selMenuItem)?.name}`} onClose={()=>setModal(false)} width={420}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Inventory Item</label>
+              <select value={linkInvId} onChange={e=>{ setLinkInvId(e.target.value); const inv=items.find(i=>i.id===e.target.value); setLinkUnit(inv?.unit||"units") }}
+                style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                <option value="">Select inventory item…</option>
+                {items.sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(i=>(
+                  <option key={i.id} value={i.id}>{i.name} (stock: {i.stock} {i.unit})</option>
+                ))}
+              </select>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Input label="Quantity to deduct" type="number" value={linkQty} onChange={e=>setLinkQty(e.target.value)} placeholder="1" hint="How much is used per sale"/>
+              <Input label="Unit" value={linkUnit} onChange={e=>setLinkUnit(e.target.value)} placeholder="e.g. packets, slices, ml"/>
+            </div>
+            {linkInvId&&(
+              <div style={{background:C.faint,borderRadius:10,padding:"12px 14px",fontSize:13,color:C.muted}}>
+                Every time <strong>{menuItems.find(m=>m.id===selMenuItem)?.name}</strong> is sold, <strong>{linkQty} {linkUnit}</strong> of <strong>{items.find(i=>i.id===linkInvId)?.name}</strong> will be deducted automatically.
+              </div>
+            )}
+            <div style={{display:"flex",gap:10}}>
+              <Btn onClick={saveLink} disabled={saving||!linkInvId||!linkQty} style={{flex:1}} size="lg">{saving?"Saving…":"Save Link"}</Btn>
+              <Btn variant="secondary" onClick={()=>setModal(false)} style={{flex:1}} size="lg">Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STOCK MOVEMENTS TAB — View all auto-deductions and manual adjustments
+// ══════════════════════════════════════════════════════════════════════════════
+function StockMovementsTab({items, business}) {
+  const {data:movements} = useData("bb_stock_movements")
+  const [filter,setFilter] = useState("all")
+
+  const filtered = movements
+    .filter(m=>filter==="all"||m.type===filter)
+    .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
+    .slice(0,100)
+
+  const typeLabel = {sale:"🛒 Sale",adjustment:"✏️ Adjustment",purchase:"📦 Purchase",waste:"🗑 Waste"}
+  const typeColor = {sale:C.primary,adjustment:C.blue,purchase:C.green,waste:C.red}
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {[["all","All"],["sale","Sales"],["adjustment","Adjustments"],["purchase","Purchases"],["waste","Waste"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setFilter(id)}
+            style={{padding:"7px 16px",borderRadius:20,border:`1px solid ${filter===id?C.primary:C.border}`,background:filter===id?C.primaryPale:"transparent",color:filter===id?C.primary:C.muted,fontSize:13,fontWeight:filter===id?700:400,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length===0
+        ? <Empty icon="📊" title="No movements yet" message="Stock movements appear here when items are sold or adjusted"/>
+        : <div style={{background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:C.faint,borderBottom:`2px solid ${C.border}`}}>
+                {["Date","Item","Type","Change","Notes"].map(h=>(
+                  <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase"}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {filtered.map(m=>{
+                  const invItem = items.find(i=>i.id===m.inventory_item_id)
+                  return(
+                    <tr key={m.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:"10px 14px",fontSize:12,color:C.muted,whiteSpace:"nowrap"}}>{new Date(m.created_at).toLocaleDateString("en-ZA")} {new Date(m.created_at).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})}</td>
+                      <td style={{padding:"10px 14px",fontSize:13,fontWeight:600,color:C.black}}>{invItem?.name||"Unknown"}</td>
+                      <td style={{padding:"10px 14px"}}><Chip color={m.quantity<0?"red":"primary"} size="sm">{typeLabel[m.type]||m.type}</Chip></td>
+                      <td style={{padding:"10px 14px",fontSize:14,fontWeight:700,color:m.quantity<0?C.red:C.primary}}>{m.quantity>0?"+":""}{m.quantity} {invItem?.unit||""}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:C.muted}}>{m.notes||"—"}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+      }
+    </div>
+  )
+}
+
 function WasteLogModule() {
   const business = useBusiness()
   const currentStaff = useStaff()
