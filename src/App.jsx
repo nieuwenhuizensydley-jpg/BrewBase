@@ -1619,7 +1619,7 @@ function POSModule() {
           </div>
 
           {/* Item grid */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(140px,140px))", gap: 10, alignContent: "start", justifyContent: "start" }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gridAutoRows: "min-content", gap: 10, alignContent: "start" }}>
             {filtered.map(item => (
               <button key={item.id} onClick={() => openItem(item)}
                 style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 0, cursor: "pointer", textAlign: "left", overflow: "hidden", transition: "all 0.15s", fontFamily: "Inter,sans-serif", display: "flex", flexDirection: "column" }}
@@ -1648,7 +1648,7 @@ function POSModule() {
       )}
 
       {/* ── RIGHT: Ticket ── */}
-      <div style={{ width: checkoutOpen ? "100%" : 320, display: "flex", flexDirection: "column", background: C.surface, flexShrink: 0, overflow: "hidden" }}>
+      <div style={{ width: checkoutOpen ? "100%" : 320, display: "flex", flexDirection: "column", background: C.surface, flexShrink: 0, overflow: "hidden", minWidth: 0 }}>
         {/* Ticket header */}
         <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, background: "#fff", flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -1720,7 +1720,8 @@ function POSModule() {
 
         {/* Footer: totals + charge */}
         {cart.length > 0 && (
-          <div style={{ borderTop: `1px solid ${C.border}`, padding: "14px 16px", background: "#fff", overflowY: checkoutOpen ? "auto" : "visible", flex: checkoutOpen ? 1 : "none" }}>
+          <div style={{ borderTop: checkoutOpen ? "none" : `1px solid ${C.border}`, padding: 0, background: "#fff", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "14px 16px", flex: checkoutOpen ? 1 : "none", overflowY: checkoutOpen ? "auto" : "visible" }}>
             {done ? (
               <div style={{ textAlign: "center", padding: "16px 0" }}>
                 <div style={{ fontSize: 48 }}>✅</div>
@@ -1940,11 +1941,12 @@ function POSModule() {
                   </div>
                 )}
 
-                <Btn size="lg" onClick={completeOrder} disabled={!canConfirm} style={{ width: "100%" }}>
+                <Btn size="lg" onClick={completeOrder} disabled={!canConfirm} style={{ width: "100%", marginBottom: 20 }}>
                   {saving ? "Processing…" : `Confirm · ${fmt(total)}`}
                 </Btn>
               </div>
             )}
+          </div>
           </div>
         )}
       </div>
@@ -4243,7 +4245,14 @@ const BB_PRINTER = {
     try {
       // Check if Web Bluetooth is supported
       if(!navigator.bluetooth) {
-        alert("Bluetooth is not supported on this browser.\n\nOn Android, use Chrome browser. Make sure you've granted Bluetooth permission to the app in Settings → Apps → BrewBase → Permissions.")
+        alert("Bluetooth not available.\n\nPlease:\n1. Make sure you are using the BrewBase Android app\n2. Go to Settings → Apps → BrewBase → Permissions\n3. Enable Nearby devices / Bluetooth\n4. Try again")
+        return false
+      }
+      // Check if Bluetooth is enabled
+      let available = true
+      try { available = await navigator.bluetooth.getAvailability() } catch(e){}
+      if(!available) {
+        alert("Bluetooth is turned off.\n\nPlease turn on Bluetooth in your Android settings and try again.")
         return false
       }
 
