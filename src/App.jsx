@@ -4033,12 +4033,28 @@ const ESC_BOLD_ON     = [ESC, 0x45, 0x01]
 const ESC_BOLD_OFF    = [ESC, 0x45, 0x00]
 const ESC_ALIGN_LEFT  = [ESC, 0x61, 0x00]
 const ESC_ALIGN_CENTER= [ESC, 0x61, 0x01]
+const ESC_ALIGN_RIGHT = [ESC, 0x61, 0x02]
 const ESC_DBLWIDTH_ON = [ESC, 0x21, 0x30]
 const ESC_DBLWIDTH_OFF= [ESC, 0x21, 0x00]
 const ESC_DBLHEIGHT_ON= [ESC, 0x21, 0x10]
+const ESC_FONT_SMALL  = [ESC, 0x21, 0x01]
+const ESC_FONT_NORMAL = [ESC, 0x21, 0x00]
+const ESC_UNDERLINE_ON = [ESC, 0x2D, 0x01]
+const ESC_UNDERLINE_OFF= [ESC, 0x2D, 0x00]
 const GS_CUT          = [GS, 0x56, 0x42, 0x00]
+const GS_CUT_PARTIAL  = [GS, 0x56, 0x41, 0x00]
 const FEED_LINES      = (n) => [ESC, 0x64, n]
 const LINE_SPACING    = (n) => [ESC, 0x33, n]
+const CHAR_SPACING    = (n) => [ESC, 0x20, n]
+const GS_SET_BARCODE_HEIGHT = (n) => [GS, 0x68, n]
+
+// Paper width → character width mapping
+const PAPER_CHARS = {
+  "58": 32,   // 58mm = 32 chars at normal font
+  "76": 42,   // 76mm = 42 chars
+  "80": 48,   // 80mm = 48 chars
+}
+const getPaperChars = (mm) => PAPER_CHARS[String(mm)] || 32
 
 function strToBytes(str) {
   return Array.from(new TextEncoder().encode(str))
@@ -4063,71 +4079,94 @@ function separator(char="-", width=32) {
   return strToBytes(char.repeat(width) + "\n")
 }
 
+function centerText(str, width=32) {
+  const s = String(str)
+  if(s.length >= width) return strToBytes(s.slice(0,width) + "\n")
+  const pad = Math.floor((width - s.length) / 2)
+  return strToBytes(" ".repeat(pad) + s + "\n")
+}
+
 // ── RECEIPT BUILDER ───────────────────────────────────────────────────────────
 function buildReceiptBytes(order, items, settings={}) {
+  const W = getPaperChars(settings.paperWidth || "58")
   const S = {
-    storeName:   settings.storeName  || "BrewBase Café",
-    tagline:     settings.tagline    || "",
-    phone:       settings.phone      || "",
-    footer1:     settings.footer1    || "Thank you for visiting!",
-    footer2:     settings.footer2    || "See you again soon.",
-    showStaff:   settings.showStaff  !== false,
-    showOrderNum:settings.showOrderNum !== false,
-    showTipLine: settings.showTipLine !== false,
+    storeName:    settings.storeName   || "BrewBase Café",
+    tagline:      settings.tagline     || "",
+    address:      settings.address     || "",
+    phone:        settings.phone       || "",
+    vatNumber:    settings.vatNumber   || "",
+    footer1:      settings.footer1     || "Thank you for visiting!",
+    footer2:      settings.footer2     || "See you again soon.",
+    showStaff:    settings.showStaff   !== false,
+    showOrderNum: settings.showOrderNum !== false,
+    showTipLine:  settings.showTipLine  !== false,
     showTotalLine:settings.showTotalLine !== false,
-    logoBitmap:  settings.logoBitmap || null,
+    showDate:     settings.showDate     !== false,
+    showTable:    settings.showTable    !== false,
+    cutAfter:     settings.cutAfter     !== false,
+    beepAfter:    settings.beepAfter    === true,
+    boldTotal:    settings.boldTotal    !== false,
+    paperWidth:   settings.paperWidth   || "58",
   }
 
   const bytes = []
   const add = (arr) => bytes.push(...arr)
   const text = (str) => add(strToBytes(str))
+  const sep  = (c="-") => add(separator(c, W))
+  const two  = (l, r) => add(twoCol(l, r, W))
+  const ctr  = (s) => add(centerText(s, W))
 
   add(ESC_INIT)
-  add(LINE_SPACING(28))
-
-  // ── LOGO ──
-  add(ESC_ALIGN_CENTER)
-  if(S.logoBitmap) {
-    // Logo bytes would be pre-converted and passed in
-    add(Array.from(S.logoBitmap))
-    text("\n")
-  }
+  add(LINE_SPACING(30))
 
   // ── HEADER ──
-  add(ESC_DBLWIDTH_ON)
+  add(ESC_ALIGN_CENTER)
   add(ESC_BOLD_ON)
+  add(ESC_DBLWIDTH_ON)
   text(S.storeName + "\n")
   add(ESC_DBLWIDTH_OFF)
   add(ESC_BOLD_OFF)
-  if(S.tagline) text(S.tagline + "\n")
-  if(S.phone)   text("Tel: " + S.phone + "\n")
+  if(S.tagline)   { text(S.tagline + "\n") }
+  if(S.address)   { text(S.address + "\n") }
+  if(S.phone)     { text("Tel: " + S.phone + "\n") }
+  if(S.vatNumber) { text("VAT No: " + S.vatNumber + "\n") }
   text("\n")
+  sep("=")
 
   // ── ORDER INFO ──
   add(ESC_ALIGN_LEFT)
-  if(S.showOrderNum) text(`Order: ${String(order.id||"").slice(-6).toUpperCase()}\n`)
+  if(S.showOrderNum) text(`Order #: ${String(order.id||"").slice(-8).toUpperCase()}\n`)
+  if(S.showDate)     text(`Date: ${order.date}  ${String(order.time||"").slice(0,5)}\n`)
   if(S.showStaff)    text(`Staff: ${order.staff_name||"—"}\n`)
-  text(`Date:  ${order.date} ${String(order.time||"").slice(0,5)}\n`)
-  text(`Type:  ${order.order_type||"Sit-in"}${order.table_num?" · Table "+order.table_num:""}\n`)
-  add(separator("."))
+  if(S.showTable && order.order_type) {
+    const typeStr = (order.order_type||"Sit-in").charAt(0).toUpperCase()+(order.order_type||"").slice(1)
+    text(`Type: ${typeStr}${order.table_num ? " — Table " + order.table_num : ""}\n`)
+  }
+  sep("-")
 
   // ── ITEMS ──
+  add(ESC_ALIGN_LEFT)
   const parsedItems = typeof items === "string" ? JSON.parse(items||"[]") : items||[]
   for(const item of parsedItems) {
     const qty = item.qty||1
-    text(`${item.name}\n`)
-    add(twoCol(`  ${qty} x R${Number(item.price||0).toFixed(2)}`, `R${Number((item.price||0)*qty).toFixed(2)}`))
+    const lineTotal = Number((item.price||0)*qty).toFixed(2)
+    add(ESC_BOLD_ON)
+    text(`${String(item.name).slice(0, W-2)}\n`)
+    add(ESC_BOLD_OFF)
+    two(`  ${qty} x R${Number(item.price||0).toFixed(2)}`, `R${lineTotal}`)
     if(item.selections) {
       for(const sel of item.selections) {
-        const labels = (sel.options||[]).map(o=>o.label).join(", ")
-        if(labels) text(`  + ${labels}\n`)
+        const labels = (sel.options||[]).map(o=>o.label+(parseFloat(o.price_delta||0)>0?` +R${Number(o.price_delta).toFixed(2)}`:"")||(o.label)).join(", ")
+        if(labels) text(`  ${sel.groupName}: ${labels}\n`)
       }
     }
-    if(item.notes) text(`  Note: ${item.notes}\n`)
+    if(item.notes) text(`  * ${item.notes}\n`)
+    text("\n")
   }
-  add(separator("."))
+  sep("-")
 
   // ── TOTALS ──
+  add(ESC_ALIGN_LEFT)
   const subtotal  = parseFloat(order.subtotal||0)
   const discAmt   = parseFloat(order.discount_amt||0)
   const vatAmt    = parseFloat(order.vat_amt||0)
@@ -4135,54 +4174,62 @@ function buildReceiptBytes(order, items, settings={}) {
   const total     = parseFloat(order.total||0)
 
   if(discAmt > 0) {
-    add(twoCol("Subtotal", `R${subtotal.toFixed(2)}`))
-    add(twoCol(`Discount ${order.discount_pct||0}%`, `-R${discAmt.toFixed(2)}`))
+    two("Subtotal", `R${subtotal.toFixed(2)}`)
+    const discLabel = order.discount_type==="comp" ? "Complimentary" : order.discount_type==="fixed" ? "Discount" : `Discount ${order.discount_pct||0}%`
+    two(discLabel, `-R${discAmt.toFixed(2)}`)
   }
-  if(vatAmt > 0) add(twoCol("VAT (15%)", `R${vatAmt.toFixed(2)}`))
-  if(tip > 0) add(twoCol("Tip", `R${tip.toFixed(2)}`))
+  if(vatAmt > 0) two(`VAT (${S.vatRate||15}%)`, `R${vatAmt.toFixed(2)}`)
+  if(tip > 0)    two("Tip", `R${tip.toFixed(2)}`)
 
+  sep("=")
   add(ESC_BOLD_ON)
   add(ESC_DBLHEIGHT_ON)
-  add(twoCol("TOTAL", `R${total.toFixed(2)}`))
+  two("TOTAL", `R${total.toFixed(2)}`)
   add(ESC_DBLWIDTH_OFF)
+  add(ESC_DBLHEIGHT_ON)
   add(ESC_BOLD_OFF)
-  add(twoCol((order.method||"card").toUpperCase(), `R${total.toFixed(2)}`))
-  if(order.method==="cash" && parseFloat(order.change_given||0)>0) {
-    add(twoCol("Change", `R${parseFloat(order.change_given).toFixed(2)}`))
-  }
-  add(separator("."))
+  sep("-")
 
-  if(S.showTipLine) {
-    add(ESC_BOLD_ON)
-    add(twoCol("Tip", "R___________"))
-    add(ESC_BOLD_OFF)
-    add(separator("."))
+  // Payment method
+  const methodLabel = {card:"CARD",cash:"CASH",eft:"EFT",split:"SPLIT"}[order.method||"card"] || "CARD"
+  two(`Paid: ${methodLabel}`, `R${total.toFixed(2)}`)
+  if(order.method==="cash" && parseFloat(order.change_given||0)>0) {
+    two("Cash Given", `R${parseFloat(order.cash_given||total).toFixed(2)}`)
+    two("Change Due", `R${parseFloat(order.change_given).toFixed(2)}`)
   }
-  if(S.showTotalLine) {
-    add(ESC_BOLD_ON)
-    add(twoCol("Total", "R___________"))
-    add(ESC_BOLD_OFF)
-    add(separator("."))
+  if(order.method==="split") {
+    if(parseFloat(order.split_card||0)>0) two("  Card", `R${parseFloat(order.split_card).toFixed(2)}`)
+    if(parseFloat(order.split_cash||0)>0) two("  Cash", `R${parseFloat(order.split_cash).toFixed(2)}`)
+  }
+  sep("=")
+
+  // ── TIP / WRITE-IN LINES ──
+  if(S.showTipLine || S.showTotalLine) {
+    text("\n")
+    if(S.showTipLine)   text(`Tip: ____________    Signature: __________\n\n`)
+    if(S.showTotalLine) two("Total incl. tip:", "_____________")
+    sep("-")
   }
 
   // ── FOOTER ──
   add(ESC_ALIGN_CENTER)
-  text("\n")
-  if(S.footer1) text(S.footer1 + "\n")
-  if(S.footer2) text(S.footer2 + "\n")
-  text("\n")
-  text(`#${String(order.id||"").slice(-6).toUpperCase()}\n`)
+  if(S.footer1) { add(ESC_BOLD_ON); text(S.footer1+"\n"); add(ESC_BOLD_OFF) }
+  if(S.footer2) text(S.footer2+"\n")
+  text("\n\n\n")
 
-  add(FEED_LINES(4))
-  add(GS_CUT)
-  return new Uint8Array(bytes)
+  if(S.beepAfter) add(ESC_BEEP||[])
+  if(S.cutAfter)  add(GS_CUT)
+
+  return bytes
 }
 
 // ── KITCHEN TICKET ────────────────────────────────────────────────────────────
-function buildKitchenBytes(order, items, kitchenCatIds=[]) {
+function buildKitchenBytes(order, items, kitchenCatIds=[], settings={}) {
+  const W = getPaperChars(settings.paperWidth || "58")
   const bytes = []
   const add = (arr) => bytes.push(...arr)
   const text = (str) => add(strToBytes(str))
+  const sep  = (c="-") => add(separator(c, W))
 
   const parsedItems = typeof items === "string" ? JSON.parse(items||"[]") : items||[]
   const kitchenItems = kitchenCatIds.length > 0
@@ -4196,39 +4243,42 @@ function buildKitchenBytes(order, items, kitchenCatIds=[]) {
   add(ESC_ALIGN_CENTER)
   add(ESC_BOLD_ON)
   add(ESC_DBLWIDTH_ON)
-  text("KITCHEN\n")
+  text("** KITCHEN **\n")
   add(ESC_DBLWIDTH_OFF)
   add(ESC_BOLD_OFF)
-  add(separator("="))
+  sep("=")
   add(ESC_ALIGN_LEFT)
 
-  text(`Order: ${String(order.id||"").slice(-6).toUpperCase()}\n`)
-  text(`Staff: ${order.staff_name||"—"}\n`)
+  text(`Order: #${String(order.id||"").slice(-8).toUpperCase()}\n`)
   text(`Time:  ${String(order.time||"").slice(0,5)}\n`)
-  if(order.order_type) text(`Type:  ${order.order_type}${order.table_num?" · Table "+order.table_num:""}\n`)
-  add(separator("-"))
+  text(`Staff: ${order.staff_name||"—"}\n`)
+  if(order.order_type) {
+    const typeStr = (order.order_type||"").charAt(0).toUpperCase()+(order.order_type||"").slice(1)
+    text(`Type:  ${typeStr}${order.table_num ? " — Table " + order.table_num : ""}\n`)
+  }
+  sep("-")
 
   for(const item of kitchenItems) {
     add(ESC_BOLD_ON)
     add(ESC_DBLHEIGHT_ON)
-    text(`${item.qty||1}x ${item.name}\n`)
+    text(`${item.qty||1}x  ${String(item.name).slice(0, W-6)}\n`)
     add(ESC_DBLWIDTH_OFF)
     add(ESC_BOLD_OFF)
     if(item.selections) {
       for(const sel of item.selections) {
         const labels = (sel.options||[]).map(o=>o.label).join(", ")
-        if(labels) text(`  > ${sel.groupName}: ${labels}\n`)
+        if(labels) text(`   ${sel.groupName}: ${labels}\n`)
       }
     }
     if(item.notes) {
       add(ESC_BOLD_ON)
-      text(`  !! ${item.notes}\n`)
+      text(`   !! ${item.notes}\n`)
       add(ESC_BOLD_OFF)
     }
     text("\n")
   }
 
-  add(separator("="))
+  sep("=")
   add(FEED_LINES(4))
   add(GS_CUT)
   return new Uint8Array(bytes)
@@ -4339,75 +4389,105 @@ function PrinterModule() {
   const business = useBusiness()
   const {data:cats} = useData("bb_categories")
 
-  const [connected,setConnected]       = useState(BB_PRINTER.connected)
-  const [connecting,setConnecting]     = useState(false)
-  const [testing,setTesting]           = useState(false)
-  const [kitchenCats,setKitchenCats]   = useState(()=>{
+  const [connected,setConnected]   = useState(BB_PRINTER.connected)
+  const [connecting,setConnecting] = useState(false)
+  const [testing,setTesting]       = useState(false)
+  const [saved,setSaved]           = useState(false)
+
+  // ── Paper & Hardware Settings ──────────────────────────────────────────────
+  const [paperWidth,setPaperWidth]   = useState(()=>localStorage.getItem("bb_paper_width")||"58")
+  const [autoCut,setAutoCut]         = useState(()=>localStorage.getItem("bb_auto_cut")!=="false")
+  const [beepOnPrint,setBeepOnPrint] = useState(()=>localStorage.getItem("bb_beep_print")==="true")
+  const [charEncoding,setCharEncoding]= useState(()=>localStorage.getItem("bb_char_encoding")||"utf8")
+  const [printDelay,setPrintDelay]   = useState(()=>localStorage.getItem("bb_print_delay")||"0")
+
+  // ── Kitchen Settings ───────────────────────────────────────────────────────
+  const [kitchenCats,setKitchenCats] = useState(()=>{
     try { return JSON.parse(localStorage.getItem("bb_kitchen_cats")||"[]") } catch { return [] }
   })
+  const [autoPrintKitchen,setAutoPrintKitchen] = useState(()=>localStorage.getItem("bb_auto_kitchen")!=="false")
+  const [kitchenCopies,setKitchenCopies]       = useState(()=>parseInt(localStorage.getItem("bb_kitchen_copies")||"1"))
 
-  // Receipt settings
-  const [storeName,setStoreName]   = useState(()=>localStorage.getItem("bb_receipt_name")||business?.name||"")
-  const [tagline,setTagline]       = useState(()=>localStorage.getItem("bb_receipt_tagline")||"")
-  const [phone,setPhone]           = useState(()=>localStorage.getItem("bb_receipt_phone")||"")
-  const [footer1,setFooter1]       = useState(()=>localStorage.getItem("bb_receipt_footer1")||"Thank you for visiting!")
-  const [footer2,setFooter2]       = useState(()=>localStorage.getItem("bb_receipt_footer2")||"See you again soon.")
-  const [showTipLine,setShowTipLine]   = useState(()=>localStorage.getItem("bb_receipt_tipline")!=="false")
-  const [showTotalLine,setShowTotalLine]= useState(()=>localStorage.getItem("bb_receipt_totalline")!=="false")
-  const [saved,setSaved]               = useState(false)
+  // ── Receipt Content Settings ───────────────────────────────────────────────
+  const [storeName,setStoreName] = useState(()=>localStorage.getItem("bb_receipt_name")||business?.name||"")
+  const [tagline,setTagline]     = useState(()=>localStorage.getItem("bb_receipt_tagline")||"")
+  const [address,setAddress]     = useState(()=>localStorage.getItem("bb_receipt_address")||"")
+  const [phone,setPhone]         = useState(()=>localStorage.getItem("bb_receipt_phone")||"")
+  const [vatNumber,setVatNumber] = useState(()=>localStorage.getItem("bb_receipt_vat")||"")
+  const [footer1,setFooter1]     = useState(()=>localStorage.getItem("bb_receipt_footer1")||"Thank you for visiting!")
+  const [footer2,setFooter2]     = useState(()=>localStorage.getItem("bb_receipt_footer2")||"See you again soon.")
+  const [vatRate,setVatRate]     = useState(()=>localStorage.getItem("bb_receipt_vatrate")||"15")
 
-  useEffect(()=>{
-    localStorage.setItem("bb_kitchen_cats",JSON.stringify(kitchenCats))
-  },[kitchenCats])
+  // ── Receipt Display Toggles ────────────────────────────────────────────────
+  const [showOrderNum,setShowOrderNum]   = useState(()=>localStorage.getItem("bb_show_ordernum")!=="false")
+  const [showStaff,setShowStaff]         = useState(()=>localStorage.getItem("bb_show_staff")!=="false")
+  const [showDate,setShowDate]           = useState(()=>localStorage.getItem("bb_show_date")!=="false")
+  const [showTable,setShowTable]         = useState(()=>localStorage.getItem("bb_show_table")!=="false")
+  const [showTipLine,setShowTipLine]     = useState(()=>localStorage.getItem("bb_receipt_tipline")!=="false")
+  const [showTotalLine,setShowTotalLine] = useState(()=>localStorage.getItem("bb_receipt_totalline")!=="false")
+
+  useEffect(()=>{ localStorage.setItem("bb_kitchen_cats",JSON.stringify(kitchenCats)) },[kitchenCats])
+
+  const getSettings = () => ({
+    storeName, tagline, address, phone, vatNumber, vatRate,
+    footer1, footer2, paperWidth, autoCut, beepOnPrint,
+    showOrderNum, showStaff, showDate, showTable,
+    showTipLine, showTotalLine,
+    cutAfter: autoCut, beepAfter: beepOnPrint,
+  })
 
   const saveSettings = () => {
-    localStorage.setItem("bb_receipt_name",storeName)
-    localStorage.setItem("bb_receipt_tagline",tagline)
-    localStorage.setItem("bb_receipt_phone",phone)
-    localStorage.setItem("bb_receipt_footer1",footer1)
-    localStorage.setItem("bb_receipt_footer2",footer2)
-    localStorage.setItem("bb_receipt_tipline",String(showTipLine))
-    localStorage.setItem("bb_receipt_totalline",String(showTotalLine))
+    const items = {
+      bb_paper_width: paperWidth, bb_auto_cut: String(autoCut),
+      bb_beep_print: String(beepOnPrint), bb_char_encoding: charEncoding,
+      bb_print_delay: printDelay, bb_auto_kitchen: String(autoPrintKitchen),
+      bb_kitchen_copies: String(kitchenCopies),
+      bb_receipt_name: storeName, bb_receipt_tagline: tagline,
+      bb_receipt_address: address, bb_receipt_phone: phone,
+      bb_receipt_vat: vatNumber, bb_receipt_vatrate: vatRate,
+      bb_receipt_footer1: footer1, bb_receipt_footer2: footer2,
+      bb_show_ordernum: String(showOrderNum), bb_show_staff: String(showStaff),
+      bb_show_date: String(showDate), bb_show_table: String(showTable),
+      bb_receipt_tipline: String(showTipLine), bb_receipt_totalline: String(showTotalLine),
+    }
+    Object.entries(items).forEach(([k,v])=>localStorage.setItem(k,v))
     setSaved(true); setTimeout(()=>setSaved(false),2000)
   }
 
-  const getSettings = () => ({ storeName, tagline, phone, footer1, footer2, showTipLine, showTotalLine })
-
   const connectPrinter = async () => {
-    // Check Web Bluetooth support first
     if(!navigator.bluetooth) {
-      alert("Web Bluetooth is not supported on this device.\n\nMake sure you are using Chrome browser. If using the BrewBase app, ensure Bluetooth permission is granted in:\nSettings → Apps → BrewBase → Permissions → Bluetooth")
+      alert("Web Bluetooth not available.\n\nAndroid: Settings → Apps → BrewBase → Permissions → enable Bluetooth & Nearby devices.\n\nAlso make sure you're using Chrome.")
       return
     }
     setConnecting(true)
     try {
       const ok = await BB_PRINTER.connect()
       setConnected(ok)
-      if(ok) {
-        // Save device name to localStorage
-        localStorage.setItem("bb_printer_name", BB_PRINTER.device?.name||"Printer")
-      }
-    } catch(e) {
-      console.error("Printer connect error:", e)
-    }
+      if(ok) localStorage.setItem("bb_printer_name", BB_PRINTER.device?.name||"Printer")
+    } catch(e) { console.error("Connect error:", e) }
     setConnecting(false)
   }
 
-  const disconnectPrinter = () => {
-    BB_PRINTER.disconnect()
-    setConnected(false)
-  }
+  const disconnectPrinter = () => { BB_PRINTER.disconnect(); setConnected(false) }
 
   const testReceipt = async () => {
     if(!BB_PRINTER.connected){ alert("Connect printer first"); return }
     setTesting(true)
     try {
-      const testOrder = {id:"TEST001",date:new Date().toISOString().slice(0,10),time:new Date().toTimeString().slice(0,5),staff_name:"Sydley",order_type:"sit-in",table_num:"4",method:"card",subtotal:90,discount_amt:0,discount_pct:0,tip:0,total:90,change_given:0}
+      const testOrder = {
+        id:"TEST001234", date:new Date().toISOString().slice(0,10),
+        time:new Date().toTimeString().slice(0,5), staff_name:"Sydley",
+        order_type:"sit-in", table_num:"4", method:"card",
+        subtotal:90, discount_amt:0, discount_type:"none",
+        vat_amt:0, tip:10, total:100, change_given:0,
+      }
       const testItems = JSON.stringify([
-        {name:"Flat White",qty:2,price:32,selections:[{groupName:"Milk",options:[{label:"Oat Milk"}]}],notes:""},
-        {name:"Croissant",qty:1,price:26,selections:[],notes:"Extra butter"},
+        {name:"Flat White",qty:2,price:32,selections:[{groupName:"Milk",options:[{label:"Oat Milk",price_delta:5}]}],notes:"Extra hot"},
+        {name:"Croissant",qty:1,price:26,selections:[],notes:""},
       ])
-      const bytes = buildReceiptBytes(testOrder, testItems, getSettings())
+      const s = getSettings()
+      const bytes = buildReceiptBytes(testOrder, testItems, s)
+      for(let i=0;i<(parseInt(printDelay)||0);i++) await new Promise(r=>setTimeout(r,1000))
       await BB_PRINTER.print(bytes)
     } catch(e) { alert("Print failed: "+e.message) }
     setTesting(false)
@@ -4417,66 +4497,121 @@ function PrinterModule() {
     if(!BB_PRINTER.connected){ alert("Connect printer first"); return }
     setTesting(true)
     try {
-      const testOrder = {id:"TEST001",date:new Date().toISOString().slice(0,10),time:new Date().toTimeString().slice(0,5),staff_name:"Sydley",order_type:"sit-in",table_num:"4"}
+      const testOrder = {id:"TEST001234",date:new Date().toISOString().slice(0,10),time:new Date().toTimeString().slice(0,5),staff_name:"Sydley",order_type:"sit-in",table_num:"4"}
       const catId = cats[0]?.id||"cat_food"
-      const testItems = JSON.stringify([
-        {name:"Eggs Benedict",qty:1,price:85,category_id:catId,selections:[{groupName:"Egg Style",options:[{label:"Poached"}]}],notes:"No onion"},
-      ])
-      const bytes = buildKitchenBytes(testOrder, testItems, kitchenCats.length>0?kitchenCats:[catId])
-      if(!bytes){ alert("No kitchen items found. Make sure at least one category is selected for kitchen printing."); setTesting(false); return }
-      await BB_PRINTER.print(bytes)
+      const testItems = JSON.stringify([{name:"Eggs Benedict",qty:1,price:85,category_id:catId,selections:[{groupName:"Egg Style",options:[{label:"Poached"}]}],notes:"No onion"}])
+      const bytes = buildKitchenBytes(testOrder, testItems, kitchenCats.length>0?kitchenCats:[catId], getSettings())
+      if(!bytes){ alert("No kitchen items. Select kitchen categories first."); setTesting(false); return }
+      for(let c=0;c<kitchenCopies;c++) await BB_PRINTER.print(Array.from(bytes))
     } catch(e) { alert("Print failed: "+e.message) }
     setTesting(false)
   }
 
+  const SectionCard = ({title, children}) => (
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
+      <SHead>{title}</SHead>
+      {children}
+    </div>
+  )
+
   return (
-    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
-      {/* Connection */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
-        <SHead>Bluetooth Printer</SHead>
-        <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20,maxWidth:700}}>
+      <div>
+        <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Printer Settings</div>
+        <div style={{fontSize:13,color:C.muted}}>Configure your Bluetooth receipt printer</div>
+      </div>
+
+      {/* ── CONNECTION ── */}
+      <SectionCard title="Bluetooth Connection">
+        <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:14}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
-            <div style={{width:12,height:12,borderRadius:"50%",background:connected?C.primary:C.red,boxShadow:connected?`0 0 0 3px ${C.primary}30`:"none"}}/>
+            <div style={{width:12,height:12,borderRadius:"50%",background:connected?C.primary:C.red,boxShadow:connected?`0 0 0 4px ${C.primary}20`:"none",flexShrink:0}}/>
             <div>
-              <div style={{fontSize:15,fontWeight:700,color:C.black}}>{connected?"Printer Connected":"No Printer Connected"}</div>
-              <div style={{fontSize:12,color:C.muted}}>{connected?BB_PRINTER.device?.name||"Bluetooth Printer":"Bluetooth printer not connected"}</div>
+              <div style={{fontSize:15,fontWeight:700,color:C.black}}>{connected?"● Connected":"○ Not Connected"}</div>
+              <div style={{fontSize:12,color:C.muted}}>{connected?BB_PRINTER.device?.name||"Bluetooth Printer":"No printer connected"}</div>
             </div>
           </div>
           <div style={{display:"flex",gap:8}}>
-            {connected ? (
-              <Btn variant="danger" size="sm" onClick={disconnectPrinter}>Disconnect</Btn>
-            ) : (
-              <Btn size="sm" onClick={connectPrinter} disabled={connecting}>{connecting?"Connecting…":"Connect Printer"}</Btn>
-            )}
+            {connected
+              ? <Btn variant="danger" size="sm" onClick={disconnectPrinter}>Disconnect</Btn>
+              : <Btn size="sm" onClick={connectPrinter} disabled={connecting}>{connecting?"Searching…":"Connect Printer"}</Btn>
+            }
           </div>
         </div>
-        {connected&&(
-          <div style={{display:"flex",gap:8,marginTop:14}}>
-            <Btn variant="secondary" size="sm" onClick={testReceipt} disabled={testing} style={{flex:1}}>{testing?"Printing…":"🖨 Test Receipt"}</Btn>
-            <Btn variant="secondary" size="sm" onClick={testKitchen} disabled={testing} style={{flex:1}}>{testing?"Printing…":"🍳 Test Kitchen"}</Btn>
-          </div>
-        )}
-        <div style={{marginTop:14,padding:"10px 14px",background:C.faint,borderRadius:8,fontSize:13,color:C.muted}}>
-          💡 Make sure your printer is <strong>turned on</strong> and in <strong>pairing/discoverable mode</strong>. On Android, also go to <strong>Settings → Apps → BrewBase → Permissions</strong> and enable Bluetooth. Keep printer within 5 metres.
-        </div>
-        {!connected&&(
-          <div style={{marginTop:10,padding:"10px 14px",background:"#e8f0f8",borderRadius:8,fontSize:13,color:"#3a6b9a"}}>
-            <strong>Android users:</strong> If Bluetooth connect does nothing or shows an error:
-            <ol style={{margin:"6px 0 0",paddingLeft:20,lineHeight:2}}>
-              <li>Open your Android <strong>Settings</strong></li>
-              <li>Go to <strong>Apps → BrewBase</strong></li>
-              <li>Tap <strong>Permissions</strong></li>
-              <li>Enable <strong>Bluetooth</strong> and <strong>Nearby devices</strong></li>
-              <li>Come back and tap Connect Printer</li>
-            </ol>
-          </div>
-        )}
-      </div>
 
-      {/* Kitchen categories */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
-        <SHead>Kitchen Ticket Categories</SHead>
-        <div style={{fontSize:13,color:C.muted,marginBottom:14}}>Items in selected categories will automatically print a kitchen ticket when ordered</div>
+        {connected&&(
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <Btn variant="secondary" size="sm" onClick={testReceipt} disabled={testing} style={{flex:1}}>{testing?"Printing…":"🖨 Test Receipt"}</Btn>
+            <Btn variant="secondary" size="sm" onClick={testKitchen} disabled={testing} style={{flex:1}}>{testing?"Printing…":"🍳 Test Kitchen Ticket"}</Btn>
+          </div>
+        )}
+
+        <div style={{background:C.faint,borderRadius:10,padding:"12px 14px",fontSize:13,color:C.muted,lineHeight:1.6}}>
+          <strong>Before connecting:</strong> Turn printer on → put in pairing/discoverable mode → tap Connect Printer → select your printer from the list.
+          <br/><strong>Android:</strong> Also go to Settings → Apps → BrewBase → Permissions → enable Bluetooth &amp; Nearby devices.
+        </div>
+
+        {!connected&&(
+          <div style={{background:"#e8f0f8",borderRadius:10,padding:"12px 14px",fontSize:13,color:"#3a6b9a",marginTop:10,lineHeight:1.8}}>
+            <strong>Printer not appearing?</strong><br/>
+            1. On Android go to Settings → Bluetooth → pair your printer first<br/>
+            2. Then come back here and tap Connect Printer<br/>
+            3. Your printer will appear in the device list
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── PAPER & HARDWARE ── */}
+      <SectionCard title="Paper & Hardware Settings">
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+          <div>
+            <label style={{fontSize:13,color:C.muted,fontWeight:600,display:"block",marginBottom:8}}>Paper Width</label>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+              {[["58","58mm (standard)","Most common — fits in pocket"],["76","76mm (medium)","Wider format"],["80","80mm (wide)","Large format receipts"]].map(([w,label,desc])=>(
+                <div key={w} onClick={()=>setPaperWidth(w)}
+                  style={{padding:"14px 12px",borderRadius:10,border:`2px solid ${paperWidth===w?C.primary:C.border}`,background:paperWidth===w?C.primaryPale:C.faint,cursor:"pointer",transition:"all 0.15s"}}>
+                  <div style={{fontSize:18,fontWeight:800,color:paperWidth===w?C.primary:C.black,marginBottom:4}}>{label}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{desc}</div>
+                  <div style={{fontSize:11,color:paperWidth===w?C.primary:C.light,marginTop:4,fontWeight:600}}>{getPaperChars(w)} chars/line</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:6}}>Kitchen copies per order</label>
+              <select value={kitchenCopies} onChange={e=>setKitchenCopies(parseInt(e.target.value))}
+                style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"11px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                <option value={1}>1 copy</option>
+                <option value={2}>2 copies</option>
+                <option value={3}>3 copies</option>
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:6}}>Print delay (seconds)</label>
+              <select value={printDelay} onChange={e=>setPrintDelay(e.target.value)}
+                style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"11px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                <option value="0">No delay</option>
+                <option value="1">1 second</option>
+                <option value="2">2 seconds</option>
+                <option value="3">3 seconds</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,padding:14,background:C.faint,borderRadius:10}}>
+            <Toggle value={autoCut} onChange={setAutoCut} label="Auto-cut paper after printing"/>
+            <Toggle value={beepOnPrint} onChange={setBeepOnPrint} label="Beep when printing completes"/>
+            <Toggle value={autoPrintKitchen} onChange={setAutoPrintKitchen} label="Auto-print kitchen ticket on every sale"/>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ── KITCHEN CATEGORIES ── */}
+      <SectionCard title="Kitchen Ticket — Categories">
+        <div style={{fontSize:13,color:C.muted,marginBottom:14}}>Items in selected categories will print a kitchen ticket automatically when ordered</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}}>
           {cats.map(cat=>{
             const selected = kitchenCats.includes(cat.id)
@@ -4486,31 +4621,52 @@ function PrinterModule() {
                 <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${selected?C.primary:C.border}`,background:selected?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   {selected&&<span style={{color:"#fff",fontSize:11}}>✓</span>}
                 </div>
-                <span style={{fontSize:14}}>{cat.emoji}</span>
+                <span style={{fontSize:16}}>{cat.emoji}</span>
                 <span style={{fontSize:13,fontWeight:selected?600:400,color:selected?C.primary:C.black}}>{cat.name}</span>
               </div>
             )
           })}
           {cats.length===0&&<div style={{color:C.muted,fontSize:13}}>Add categories in Menu first</div>}
         </div>
-      </div>
+      </SectionCard>
 
-      {/* Receipt settings */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:20}}>
-        <SHead>Receipt Settings</SHead>
-        <div style={{display:"flex",flexDirection:"column",gap:14,maxWidth:480}}>
-          <Input label="Store Name on Receipt" value={storeName} onChange={e=>setStoreName(e.target.value)} placeholder="e.g. Ruah Brew Coffee Shop"/>
-          <Input label="Tagline" value={tagline} onChange={e=>setTagline(e.target.value)} placeholder="e.g. Where every cup tells a story"/>
-          <Input label="Phone Number" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="062 356 3589"/>
+      {/* ── RECEIPT HEADER ── */}
+      <SectionCard title="Receipt Header">
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Input label="Store Name" value={storeName} onChange={e=>setStoreName(e.target.value)} placeholder="e.g. Ruah Brew Coffee Shop" hint="Printed in large bold text at the top"/>
+          <Input label="Tagline / Slogan" value={tagline} onChange={e=>setTagline(e.target.value)} placeholder="e.g. Where every cup tells a story"/>
+          <Input label="Address" value={address} onChange={e=>setAddress(e.target.value)} placeholder="e.g. 30 Christoffel St, Van Riebeeck Park"/>
+          <Input label="Phone Number" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="e.g. 062 356 3589"/>
+          <Input label="VAT Number (if registered)" value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="e.g. 4123456789"/>
+          <Input label="VAT Rate (%)" value={vatRate} onChange={e=>setVatRate(e.target.value)} placeholder="15" hint="Only shown if VAT is enabled on your business"/>
+        </div>
+      </SectionCard>
+
+      {/* ── RECEIPT CONTENT ── */}
+      <SectionCard title="Receipt Content">
+        <div style={{display:"flex",flexDirection:"column",gap:10,padding:14,background:C.faint,borderRadius:10,marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:600,color:C.black,marginBottom:4}}>Show on receipt:</div>
+          <Toggle value={showOrderNum} onChange={setShowOrderNum} label="Order number"/>
+          <Toggle value={showDate} onChange={setShowDate} label="Date and time"/>
+          <Toggle value={showStaff} onChange={setShowStaff} label="Staff name"/>
+          <Toggle value={showTable} onChange={setShowTable} label="Order type and table number"/>
+          <Toggle value={showTipLine} onChange={setShowTipLine} label="Tip write-in line (for card payments)"/>
+          <Toggle value={showTotalLine} onChange={setShowTotalLine} label="Total with tip write-in line"/>
+        </div>
+      </SectionCard>
+
+      {/* ── RECEIPT FOOTER ── */}
+      <SectionCard title="Receipt Footer">
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Input label="Footer Line 1" value={footer1} onChange={e=>setFooter1(e.target.value)} placeholder="Thank you for visiting!"/>
           <Input label="Footer Line 2" value={footer2} onChange={e=>setFooter2(e.target.value)} placeholder="See you again soon."/>
-          <div style={{display:"flex",flexDirection:"column",gap:10,padding:"14px",background:C.faint,borderRadius:10}}>
-            <Toggle value={showTipLine} onChange={setShowTipLine} label="Show Tip write-in line"/>
-            <Toggle value={showTotalLine} onChange={setShowTotalLine} label="Show Total write-in line"/>
-          </div>
-          <Btn onClick={saveSettings} style={{alignSelf:"flex-start"}} size="lg">{saved?"✓ Saved!":"Save Receipt Settings"}</Btn>
         </div>
-      </div>
+      </SectionCard>
+
+      {/* ── SAVE ── */}
+      <Btn onClick={saveSettings} size="lg" style={{alignSelf:"flex-start",minWidth:200}}>
+        {saved?"✓ Settings Saved!":"Save All Printer Settings"}
+      </Btn>
     </div>
   )
 }
