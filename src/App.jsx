@@ -761,6 +761,7 @@ function StaffLogin({business, onLogin}) {
   const [selected,setSelected] = useState(null)
   const [pin,setPin]           = useState("")
   const [error,setError]       = useState("")
+  const [shaking,setShaking]   = useState(false)
 
   const handlePin = async (digit) => {
     const newPin = pin + digit
@@ -769,69 +770,107 @@ function StaffLogin({business, onLogin}) {
     if(newPin.length===4){
       const member = staffList.find(s=>s.id===selected&&String(s.pin)===newPin)
       if(member){ onLogin(member); setPin("") }
-      else { setError("Incorrect PIN"); setTimeout(()=>{ setPin(""); setError("") },1000) }
+      else {
+        setShaking(true)
+        setError("Incorrect PIN — try again")
+        setTimeout(()=>{ setPin(""); setError(""); setShaking(false) },1200)
+      }
     }
   }
 
+  const selectedStaff = staffList.find(s=>s.id===selected)
+
   return (
-    <div style={{minHeight:"100vh",background:"#0e0e0e",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:32,padding:24}}>
-      <div style={{textAlign:"center"}}>
-        <img src={LOGO_LG} alt="BrewBase" style={{width:120,height:120,objectFit:"contain",marginBottom:8}}/>
-        <div style={{fontSize:20,fontWeight:700,color:"#fff",marginTop:8}}>{business?.name}</div>
-        <div style={{fontSize:14,color:"rgba(255,255,255,.4)",marginTop:4}}>Select your name to clock in</div>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f5f3ef 0%,#edf7f0 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"Inter,sans-serif"}}>
+
+      {/* Logo + business name */}
+      <div style={{textAlign:"center",marginBottom:44}}>
+        <div style={{width:110,height:110,borderRadius:24,background:"#fff",border:"2px solid #e4e0da",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px",overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,0.08)"}}>
+          <img src={LOGO_LG} alt="BrewBase" style={{width:100,height:100,objectFit:"contain"}}/>
+        </div>
+        <div style={{fontSize:28,fontWeight:800,color:"#0e0e0e",fontFamily:"Playfair Display,serif",marginBottom:4}}>{business?.name}</div>
+        <div style={{fontSize:14,color:"#6b6b6b"}}>
+          {!selected ? "Who's working today?" : `Enter PIN for ${selectedStaff?.name}`}
+        </div>
       </div>
 
       {!selected?(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:12,maxWidth:500,width:"100%"}}>
+        /* ── STAFF GRID ── */
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:16,maxWidth:640,width:"100%"}}>
           {staffList.map(s=>(
-            <div key={s.id} onClick={()=>setSelected(s.id)} style={{
-              background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
-              padding:"20px 12px",textAlign:"center",cursor:"pointer",transition:"all 0.15s"
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor=C.primary;e.currentTarget.style.background=C.primaryPale}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.card}}>
-              <div style={{width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${C.primary},${C.blue})`,
-                display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",
-                fontSize:20,fontWeight:700,color:"#fff"}}>
-                {s.initials||s.name?.slice(0,2).toUpperCase()}
+            <button key={s.id} onClick={()=>setSelected(s.id)}
+              style={{background:"#fff",border:"2px solid #e4e0da",borderRadius:20,padding:"28px 16px 20px",textAlign:"center",cursor:"pointer",transition:"all 0.18s",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",fontFamily:"Inter,sans-serif"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor="#4a7c59";e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 28px rgba(74,124,89,0.18)"}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor="#e4e0da";e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="0 2px 12px rgba(0,0,0,0.06)"}}>
+              {/* Avatar */}
+              <div style={{width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,#4a7c59,#2d5a3d)`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",boxShadow:"0 4px 16px rgba(74,124,89,0.3)"}}>
+                <span style={{fontSize:22,fontWeight:800,color:"#fff"}}>{s.initials||s.name?.slice(0,2).toUpperCase()}</span>
               </div>
-              <div style={{fontSize:14,fontWeight:600,color:"#fff"}}>{s.name}</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,.5)",textTransform:"capitalize"}}>{s.role}</div>
-            </div>
+              <div style={{fontSize:15,fontWeight:700,color:"#0e0e0e",marginBottom:6}}>{s.name}</div>
+              <div style={{fontSize:11,color:"#4a7c59",textTransform:"capitalize",background:"#edf7f0",borderRadius:20,padding:"3px 12px",display:"inline-block",fontWeight:600}}>{s.role}</div>
+            </button>
           ))}
+          {staffList.length===0&&(
+            <div style={{gridColumn:"1/-1",textAlign:"center",padding:40,color:"#6b6b6b"}}>
+              <div style={{fontSize:40,marginBottom:12}}>👥</div>
+              <div style={{fontSize:16,fontWeight:600}}>No staff added yet</div>
+              <div style={{fontSize:13,marginTop:4}}>Log in as owner and add staff in the Staff section</div>
+            </div>
+          )}
         </div>
       ):(
-        <div style={{textAlign:"center"}}>
-          <div style={{width:64,height:64,borderRadius:"50%",background:`linear-gradient(135deg,${C.primary},${C.blue})`,
-            display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",fontSize:26,fontWeight:700,color:"#fff"}}>
-            {staffList.find(s=>s.id===selected)?.initials||"?"}
+        /* ── PIN ENTRY ── */
+        <div style={{textAlign:"center",background:"#fff",borderRadius:24,padding:"40px 36px",boxShadow:"0 12px 48px rgba(0,0,0,0.1)",maxWidth:340,width:"100%",animation:shaking?"shake 0.4s ease":"none"}}>
+          {/* Staff avatar */}
+          <div style={{width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,#4a7c59,#2d5a3d)`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",boxShadow:"0 4px 20px rgba(74,124,89,0.3)"}}>
+            <span style={{fontSize:28,fontWeight:800,color:"#fff"}}>{selectedStaff?.initials||selectedStaff?.name?.slice(0,2).toUpperCase()||"?"}</span>
           </div>
-          <div style={{fontSize:18,fontWeight:700,color:C.white,marginBottom:4}}>
-            {staffList.find(s=>s.id===selected)?.name}
-          </div>
-          <div style={{fontSize:13,color:C.muted,marginBottom:24}}>Enter your 4-digit PIN</div>
-          <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:24}}>
+          <div style={{fontSize:20,fontWeight:800,color:"#0e0e0e",marginBottom:2}}>{selectedStaff?.name}</div>
+          <div style={{fontSize:12,color:"#4a7c59",textTransform:"capitalize",marginBottom:24,fontWeight:600}}>{selectedStaff?.role}</div>
+
+          {/* PIN dots */}
+          <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:20}}>
             {[0,1,2,3].map(i=>(
-              <div key={i} style={{width:14,height:14,borderRadius:"50%",background:pin.length>i?C.primary:C.faint,transition:"background 0.1s"}}/>
+              <div key={i} style={{width:16,height:16,borderRadius:"50%",
+                background:pin.length>i?"#4a7c59":"#e4e0da",
+                transform:pin.length>i?"scale(1.2)":"scale(1)",
+                transition:"all 0.15s",
+                boxShadow:pin.length>i?"0 0 0 4px rgba(74,124,89,0.15)":"none"}}/>
             ))}
           </div>
-          {error&&<div style={{color:C.red,fontSize:13,marginBottom:16,fontWeight:600}}>{error}</div>}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:220,margin:"0 auto"}}>
+
+          {/* Error */}
+          {error&&<div style={{color:"#d64545",fontSize:13,marginBottom:14,fontWeight:600,background:"#fff5f5",borderRadius:10,padding:"8px 14px"}}>{error}</div>}
+
+          {/* Number pad */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:240,margin:"0 auto 20px"}}>
             {[1,2,3,4,5,6,7,8,9,"","0","⌫"].map((d,i)=>(
               <button key={i} onClick={()=>{ if(d==="⌫") setPin(p=>p.slice(0,-1)); else if(d!=="") handlePin(String(d)); }}
-                style={{height:60,borderRadius:12,border:`1px solid ${C.border}`,background:C.elevated,
-                  color:d==="⌫"?C.red:C.white,fontSize:d==="⌫"?20:22,fontWeight:600,cursor:"pointer",
-                  fontFamily:"Inter,sans-serif",transition:"all 0.1s"}}>
+                disabled={d===""}
+                style={{height:62,borderRadius:14,border:`1.5px solid ${d===""?"transparent":d==="⌫"?"#ffd4d4":"#e4e0da"}`,
+                  background:d===""?"transparent":d==="⌫"?"#fff5f5":"#f8f7f5",
+                  color:d==="⌫"?"#d64545":"#0e0e0e",
+                  fontSize:d==="⌫"?20:24,fontWeight:d==="⌫"?500:600,
+                  cursor:d===""?"default":"pointer",
+                  fontFamily:"Inter,sans-serif",
+                  transition:"all 0.1s",
+                  boxShadow:d!==""?"0 2px 4px rgba(0,0,0,0.04)":"none"}}>
                 {d}
               </button>
             ))}
           </div>
+
           <button onClick={()=>{ setSelected(null); setPin(""); setError(""); }}
-            style={{marginTop:20,background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:13}}>
+            style={{background:"none",border:"none",color:"#9a9a9a",cursor:"pointer",fontSize:13,fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",gap:4,margin:"0 auto"}}>
             ← Back
           </button>
         </div>
       )}
+
+      {/* Footer */}
+      <div style={{marginTop:48,fontSize:11,color:"#b0a99a",textAlign:"center",letterSpacing:0.5}}>
+        Powered by BrewBase · NovaNest Studios
+      </div>
     </div>
   )
 }
