@@ -781,15 +781,15 @@ function StaffLogin({business, onLogin}) {
   const selectedStaff = staffList.find(s=>s.id===selected)
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f5f3ef 0%,#edf7f0 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"Inter,sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f5f3ef 0%,#edf7f0 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"Inter,sans-serif"}}>
 
       {/* Logo + business name */}
-      <div style={{textAlign:"center",marginBottom:44}}>
-        <div style={{width:110,height:110,borderRadius:24,background:"#fff",border:"2px solid #e4e0da",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px",overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,0.08)"}}>
-          <img src={LOGO_LG} alt="BrewBase" style={{width:100,height:100,objectFit:"contain"}}/>
+      <div style={{textAlign:"center",marginBottom:24}}>
+        <div style={{width:80,height:80,borderRadius:18,background:"#fff",border:"2px solid #e4e0da",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",overflow:"hidden",boxShadow:"0 4px 20px rgba(0,0,0,0.08)"}}>
+          <img src={LOGO_LG} alt="BrewBase" style={{width:72,height:72,objectFit:"contain"}}/>
         </div>
-        <div style={{fontSize:28,fontWeight:800,color:"#0e0e0e",fontFamily:"Playfair Display,serif",marginBottom:4}}>{business?.name}</div>
-        <div style={{fontSize:14,color:"#6b6b6b"}}>
+        <div style={{fontSize:22,fontWeight:800,color:"#0e0e0e",fontFamily:"Playfair Display,serif",marginBottom:3}}>{business?.name}</div>
+        <div style={{fontSize:13,color:"#6b6b6b"}}>
           {!selected ? "Who's working today?" : `Enter PIN for ${selectedStaff?.name}`}
         </div>
       </div>
@@ -820,48 +820,47 @@ function StaffLogin({business, onLogin}) {
         </div>
       ):(
         /* ── PIN ENTRY ── */
-        <div style={{textAlign:"center",background:"#fff",borderRadius:24,padding:"40px 36px",boxShadow:"0 12px 48px rgba(0,0,0,0.1)",maxWidth:340,width:"100%",animation:shaking?"shake 0.4s ease":"none"}}>
+        <div style={{textAlign:"center",background:"#fff",borderRadius:24,padding:"24px 28px",boxShadow:"0 12px 48px rgba(0,0,0,0.1)",maxWidth:320,width:"100%"}}>
           {/* Staff avatar */}
-          <div style={{width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,#4a7c59,#2d5a3d)`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",boxShadow:"0 4px 20px rgba(74,124,89,0.3)"}}>
-            <span style={{fontSize:28,fontWeight:800,color:"#fff"}}>{selectedStaff?.initials||selectedStaff?.name?.slice(0,2).toUpperCase()||"?"}</span>
+          <div style={{width:56,height:56,borderRadius:"50%",background:`linear-gradient(135deg,#4a7c59,#2d5a3d)`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",boxShadow:"0 4px 16px rgba(74,124,89,0.3)"}}>
+            <span style={{fontSize:20,fontWeight:800,color:"#fff"}}>{selectedStaff?.initials||selectedStaff?.name?.slice(0,2).toUpperCase()||"?"}</span>
           </div>
-          <div style={{fontSize:20,fontWeight:800,color:"#0e0e0e",marginBottom:2}}>{selectedStaff?.name}</div>
-          <div style={{fontSize:12,color:"#4a7c59",textTransform:"capitalize",marginBottom:24,fontWeight:600}}>{selectedStaff?.role}</div>
+          <div style={{fontSize:17,fontWeight:800,color:"#0e0e0e",marginBottom:2}}>{selectedStaff?.name}</div>
+          <div style={{fontSize:11,color:"#4a7c59",textTransform:"capitalize",marginBottom:16,fontWeight:600}}>{selectedStaff?.role}</div>
 
           {/* PIN dots */}
-          <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:20}}>
+          <div style={{display:"flex",gap:12,justifyContent:"center",marginBottom:14}}>
             {[0,1,2,3].map(i=>(
-              <div key={i} style={{width:16,height:16,borderRadius:"50%",
+              <div key={i} style={{width:14,height:14,borderRadius:"50%",
                 background:pin.length>i?"#4a7c59":"#e4e0da",
                 transform:pin.length>i?"scale(1.2)":"scale(1)",
                 transition:"all 0.15s",
-                boxShadow:pin.length>i?"0 0 0 4px rgba(74,124,89,0.15)":"none"}}/>
+                boxShadow:pin.length>i?"0 0 0 3px rgba(74,124,89,0.15)":"none"}}/>
             ))}
           </div>
 
           {/* Error */}
-          {error&&<div style={{color:"#d64545",fontSize:13,marginBottom:14,fontWeight:600,background:"#fff5f5",borderRadius:10,padding:"8px 14px"}}>{error}</div>}
+          {error&&<div style={{color:"#d64545",fontSize:12,marginBottom:10,fontWeight:600,background:"#fff5f5",borderRadius:8,padding:"6px 12px"}}>{error}</div>}
 
           {/* Number pad */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:240,margin:"0 auto 20px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,maxWidth:240,margin:"0 auto 14px"}}>
             {[1,2,3,4,5,6,7,8,9,"","0","⌫"].map((d,i)=>(
               <button key={i} onClick={()=>{ if(d==="⌫") setPin(p=>p.slice(0,-1)); else if(d!=="") handlePin(String(d)); }}
                 disabled={d===""}
-                style={{height:62,borderRadius:14,border:`1.5px solid ${d===""?"transparent":d==="⌫"?"#ffd4d4":"#e4e0da"}`,
+                style={{height:54,borderRadius:12,border:`1.5px solid ${d===""?"transparent":d==="⌫"?"#ffd4d4":"#e4e0da"}`,
                   background:d===""?"transparent":d==="⌫"?"#fff5f5":"#f8f7f5",
                   color:d==="⌫"?"#d64545":"#0e0e0e",
-                  fontSize:d==="⌫"?20:24,fontWeight:d==="⌫"?500:600,
+                  fontSize:d==="⌫"?18:22,fontWeight:600,
                   cursor:d===""?"default":"pointer",
                   fontFamily:"Inter,sans-serif",
-                  transition:"all 0.1s",
-                  boxShadow:d!==""?"0 2px 4px rgba(0,0,0,0.04)":"none"}}>
+                  transition:"all 0.1s"}}>
                 {d}
               </button>
             ))}
           </div>
 
           <button onClick={()=>{ setSelected(null); setPin(""); setError(""); }}
-            style={{background:"none",border:"none",color:"#9a9a9a",cursor:"pointer",fontSize:13,fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",gap:4,margin:"0 auto"}}>
+            style={{background:"none",border:"none",color:"#9a9a9a",cursor:"pointer",fontSize:12,fontFamily:"Inter,sans-serif"}}>
             ← Back
           </button>
         </div>
