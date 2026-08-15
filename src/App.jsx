@@ -1535,30 +1535,56 @@ function POSModule() {
       // Deduct stock from inventory using ingredient links
       try {
         const soldItems = typeof order.items==="string"?JSON.parse(order.items||"[]"):order.items||[]
-        // Deduct variant stock first
+
+        // Helper: get base menu item from a sold item (strips variant suffix)
+        const getMenuItemForSold = (si) => {
+          if(si.variant_id) {
+            // Find menu item via variant
+            return menuItems.find(m=>m.id===si.id) ||
+                   menuItems.find(m=>m.name===si.name.split(" — ")[0].trim()) ||
+                   menuItems.find(m=>si.name.startsWith(m.name))
+          }
+          return menuItems.find(m=>m.name===si.name) ||
+                 menuItems.find(m=>m.name===si.name.split(" — ")[0].trim()) ||
+                 menuItems.find(m=>si.name.startsWith(m.name))
+        }
+
+        // Deduct variant stock
         for(const soldItem of soldItems) {
           if(soldItem.variant_id) {
-            const {data:variant} = await supabase.from("bb_menu_variants").select("stock").eq("id",soldItem.variant_id).single()
+            const {data:variant} = await supabase.from("bb_menu_variants")
+              .select("stock,inv_item_id").eq("id",soldItem.variant_id).single()
             if(variant) {
+              // Deduct from variant stock
               const newStock = Math.max(0, parseFloat(variant.stock||0) - (soldItem.qty||1))
               await supabase.from("bb_menu_variants").update({stock:newStock}).eq("id",soldItem.variant_id)
+              // Also deduct from linked inventory item if set
+              if(variant.inv_item_id) {
+                const {data:invItem} = await supabase.from("bb_inventory").select("stock").eq("id",variant.inv_item_id).single()
+                if(invItem) {
+                  const newInvStock = Math.max(0, parseFloat(invItem.stock||0) - (soldItem.qty||1))
+                  await supabase.from("bb_inventory").update({stock:newInvStock}).eq("id",variant.inv_item_id)
+                  await supabase.from("bb_stock_movements").insert({
+                    id:uid(), business_id:business.id, inventory_item_id:variant.inv_item_id,
+                    type:"sale", quantity:-(soldItem.qty||1), order_id:order.id,
+                    notes:`${soldItem.name} — variant sale`,
+                    created_at:new Date().toISOString()
+                  })
+                }
+              }
             }
           }
         }
-        // Get all ingredient links for sold items
-        const menuItemIds = soldItems.map(si=>{
-          // Try to find by original name (before variant suffix)
-          const baseName = si.name.includes(" — ") ? si.name.split(" — ")[0] : si.name
-          return menuItems.find(m=>m.name===baseName||m.name===si.name)?.id
-        }).filter(Boolean)
+
+        // Deduct via ingredient links (base menu item links)
+        const menuItemIds = soldItems.map(si=>getMenuItemForSold(si)?.id).filter(Boolean)
         if(menuItemIds.length>0) {
           const {data:links} = await supabase.from("bb_ingredient_links")
             .select("*").eq("business_id",business.id).in("menu_item_id",menuItemIds)
           if(links&&links.length>0) {
-            // Group deductions by inventory item
             const deductions = {}
             for(const soldItem of soldItems) {
-              const menuItem = menuItems.find(m=>m.name===soldItem.name)
+              const menuItem = getMenuItemForSold(soldItem)
               if(!menuItem) continue
               const itemLinks = links.filter(l=>l.menu_item_id===menuItem.id)
               for(const link of itemLinks) {
@@ -1566,13 +1592,11 @@ function POSModule() {
                 deductions[link.inventory_item_id] = (deductions[link.inventory_item_id]||0) + qty
               }
             }
-            // Apply deductions
             for(const [invId,deductQty] of Object.entries(deductions)) {
               const {data:invItem} = await supabase.from("bb_inventory").select("stock").eq("id",invId).single()
               if(invItem) {
                 const newStock = Math.max(0, parseFloat(invItem.stock||0) - deductQty)
                 await supabase.from("bb_inventory").update({stock:newStock}).eq("id",invId)
-                // Log movement
                 await supabase.from("bb_stock_movements").insert({
                   id:uid(), business_id:business.id, inventory_item_id:invId,
                   type:"sale", quantity:-deductQty, order_id:order.id,
@@ -1583,10 +1607,11 @@ function POSModule() {
             }
           }
         }
-        // Also deduct from menu item stock if track_stock enabled (direct)
+
+        // Deduct from menu item direct stock if track_stock enabled
         for(const soldItem of soldItems) {
-          const menuItem = menuItems.find(m=>m.name===soldItem.name&&m.track_stock)
-          if(menuItem) {
+          const menuItem = getMenuItemForSold(soldItem)
+          if(menuItem?.track_stock && !soldItem.variant_id) {
             const newStock = Math.max(0, parseFloat(menuItem.stock||0)-(soldItem.qty||1))
             await supabase.from("bb_menu_items").update({stock:newStock}).eq("id",menuItem.id)
           }
