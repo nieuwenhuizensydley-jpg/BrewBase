@@ -5685,11 +5685,18 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
   const [saving, setSaving] = useState(false)
   const {data:modGroups} = useData("bb_modifier_groups")
   const {data:modOptions} = useData("bb_modifier_options")
-  const {data:itemModLinks} = useData("bb_item_modifiers")
+  const [itemModLinks, setItemModLinks] = useState([])
+
+  // Load item modifier links directly when selMenuItem changes
+  useEffect(()=>{
+    if(!selMenuItem) return
+    supabase.from("bb_item_modifiers").select("*").eq("item_id", selMenuItem)
+      .then(({data})=>setItemModLinks(data||[]))
+  },[selMenuItem])
 
   // Get modifier groups and options linked to a menu item
   const getModOptionsForItem = (menuItemId) => {
-    if(!menuItemId || !itemModLinks?.length) return []
+    if(!menuItemId) return []
     const groupIds = itemModLinks.filter(l=>l.item_id===menuItemId).map(l=>l.group_id)
     if(!groupIds.length) return []
     const groups = (modGroups||[]).filter(g=>groupIds.includes(g.id))
