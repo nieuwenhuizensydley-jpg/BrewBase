@@ -5687,30 +5687,16 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
   const {data:modOptions} = useData("bb_modifier_options")
   const {data:itemModLinks} = useData("bb_item_modifiers")
 
-  // Group links by menu item
-  const grouped = menuItems.map(m => ({
-    ...m,
-    links: links.filter(l => l.menu_item_id === m.id)
-  })).filter(m => m.links.length > 0 || selMenuItem === m.id)
-
-  const openLink = (menuItemId) => {
-    setSelMenuItem(menuItemId)
-    setLinkInvId("")
-    setLinkQty("1")
-    setLinkUnit("")
-    setLinkModOption("")
-    setLinkModGroup("")
-    setModal(true)
-  }
-
-  // Get modifier options for a menu item
+  // Get modifier groups and options linked to a menu item
   const getModOptionsForItem = (menuItemId) => {
+    if(!menuItemId || !itemModLinks?.length) return []
     const groupIds = itemModLinks.filter(l=>l.item_id===menuItemId).map(l=>l.group_id)
-    const groups = modGroups.filter(g=>groupIds.includes(g.id))
+    if(!groupIds.length) return []
+    const groups = (modGroups||[]).filter(g=>groupIds.includes(g.id))
     return groups.map(g=>({
       group: g,
-      options: modOptions.filter(o=>o.group_id===g.id)
-    }))
+      options: (modOptions||[]).filter(o=>o.group_id===g.id&&o.active!==false)
+    })).filter(g=>g.options.length>0)
   }
 
   const saveLink = async () => {
