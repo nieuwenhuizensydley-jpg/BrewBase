@@ -1372,14 +1372,16 @@ function POSModule() {
   const [selVariant, setSelVariant]     = useState(null)
 
   const openItem = async (item) => {
-    if(item.track_stock && parseFloat(item.stock||0)<=0 && !item.has_variants) {
+    // Load variants first
+    const {data:vars} = await supabase.from("bb_menu_variants").select("*").eq("menu_item_id",item.id).order("sort_order")
+    const hasVariants = vars && vars.length > 0
+    // Only check main stock if no variants
+    if(!hasVariants && item.track_stock && parseFloat(item.stock||0)<=0) {
       alert(`${item.name} is out of stock`)
       return
     }
-    // Load variants for this item
-    const {data:vars} = await supabase.from("bb_menu_variants").select("*").eq("menu_item_id",item.id).order("sort_order")
     setItemVariants(vars||[])
-    setSelVariant(vars&&vars.length>0 ? vars[0] : null)
+    setSelVariant(vars&&vars.length>0 ? vars.find(v=>parseFloat(v.stock||0)>0) || vars[0] : null)
     const groups = getGroupsForItem(item.id, item.category_id)
     const init = {}
     groups.forEach(g => {
@@ -1502,7 +1504,8 @@ function POSModule() {
         time: new Date().toTimeString().slice(0, 5),
         items: cart.map(i => ({
           name: i.name, qty: i.qty, price: i.price,
-          category_id: i.category_id, selections: i.selections, notes: i.notes
+          category_id: i.category_id, selections: i.selections, notes: i.notes,
+          variant_id: i.variant_id||null, variant_name: i.variant_name||null
         })),
         order_type: orderType,
         table_num: tableNum || null,
@@ -1543,7 +1546,11 @@ function POSModule() {
           }
         }
         // Get all ingredient links for sold items
-        const menuItemIds = soldItems.map(si=>menuItems.find(m=>m.name===si.name)?.id).filter(Boolean)
+        const menuItemIds = soldItems.map(si=>{
+          // Try to find by original name (before variant suffix)
+          const baseName = si.name.includes(" — ") ? si.name.split(" — ")[0] : si.name
+          return menuItems.find(m=>m.name===baseName||m.name===si.name)?.id
+        }).filter(Boolean)
         if(menuItemIds.length>0) {
           const {data:links} = await supabase.from("bb_ingredient_links")
             .select("*").eq("business_id",business.id).in("menu_item_id",menuItemIds)
@@ -4001,45 +4008,80 @@ function ShiftsModule() {
     const openedBy = staffList.find(s=>s.id===shift.opened_by)
     const closedBy = staffList.find(s=>s.id===shift.closed_by)
 
-    const printReport = () => {
-      const w = window.open("","_blank")
-      w.document.write(`
-        <html><head><title>End of Shift Report</title>
-        <style>body{font-family:monospace;padding:20px;max-width:380px;margin:0 auto}
-        h1{font-size:18px;text-align:center}h2{font-size:14px;border-top:1px solid #000;padding-top:8px}
-        .row{display:flex;justify-content:space-between;margin:4px 0;font-size:13px}
-        .bold{font-weight:bold}.variance{color:${cashVar>=0?"green":"red"}}
-        .total{border-top:2px solid #000;padding-top:6px;font-size:16px;font-weight:bold}
-        </style></head><body>
-        <h1>BrewBase</h1>
-        <div style="text-align:center;font-size:13px">${business?.name}</div>
-        <div style="text-align:center;font-size:12px;margin-bottom:12px">End of Shift Report</div>
-        <h2>Shift Details</h2>
-        <div class="row"><span>Date</span><span>${shift.date}</span></div>
-        <div class="row"><span>Opened by</span><span>${openedBy?.name||"—"}</span></div>
-        <div class="row"><span>Opened at</span><span>${new Date(shift.opened_at).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})}</span></div>
-        ${shift.closed_at?`<div class="row"><span>Closed by</span><span>${closedBy?.name||"—"}</span></div>
-        <div class="row"><span>Closed at</span><span>${new Date(shift.closed_at).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})}</span></div>`:""}
-        <div class="row"><span>Opening float</span><span>R${parseFloat(shift.open_float||0).toFixed(2)}</span></div>
-        <h2>Sales Summary</h2>
-        <div class="row"><span>Total orders</span><span>${totals.count}</span></div>
-        <div class="row"><span>Cash sales</span><span>R${totals.cash.toFixed(2)}</span></div>
-        <div class="row"><span>Card sales</span><span>R${totals.card.toFixed(2)}</span></div>
-        <div class="row"><span>EFT sales</span><span>R${totals.eft.toFixed(2)}</span></div>
-        <div class="row"><span>Tips</span><span>R${totals.tips.toFixed(2)}</span></div>
-        <div class="row total"><span>TOTAL REVENUE</span><span>R${totals.total.toFixed(2)}</span></div>
-        <h2>Cash Reconciliation</h2>
-        <div class="row"><span>Opening float</span><span>R${parseFloat(shift.open_float||0).toFixed(2)}</span></div>
-        <div class="row"><span>System cash total</span><span>R${totals.cash.toFixed(2)}</span></div>
-        <div class="row"><span>Expected in drawer</span><span>R${(totals.cash+parseFloat(shift.open_float||0)).toFixed(2)}</span></div>
-        <div class="row"><span>Cash counted</span><span>R${parseFloat(shift.cash_counted||0).toFixed(2)}</span></div>
-        <div class="row variance bold"><span>Variance</span><span>${cashVar>=0?"+":""}R${cashVar.toFixed(2)}</span></div>
-        ${shift.notes?`<h2>Notes</h2><p style="font-size:13px">${shift.notes}</p>`:""}
-        <div style="text-align:center;margin-top:20px;font-size:11px">Printed ${new Date().toLocaleString("en-ZA")}</div>
-        </body></html>
-      `)
-      w.document.close()
-      w.print()
+    const [printing, setPrinting] = useState(false)
+
+    const printReport = async () => {
+      if(!BB_PRINTER.connected) {
+        alert("Printer not connected. Go to Printer settings and connect your printer first.")
+        return
+      }
+      setPrinting(true)
+      try {
+        const s = getReceiptSettings()
+        const W = getPaperChars(s.paperWidth||"58")
+        const two = (l,r) => { const gap=W-String(l).length-String(r).length; return String(l)+" ".repeat(Math.max(1,gap))+String(r) }
+        const sep = (c="-") => c.repeat(W)
+        const bytes = []
+        const add = (arr) => bytes.push(...arr)
+        const text = (str) => add(strToBytes(str))
+        add(ESC_INIT)
+        add(LINE_SPACING(30))
+        add(ESC_ALIGN_CENTER)
+        add(ESC_BOLD_ON)
+        add(ESC_DBLHEIGHT_ON)
+        text((s.storeName||business?.name||"BrewBase") + "\n")
+        add(ESC_BOLD_OFF)
+        text("END OF SHIFT REPORT\n")
+        text(shift.date + "\n")
+        add(ESC_ALIGN_LEFT)
+        text(sep("=") + "\n")
+        text(two("Opened by:", openedBy?.name||"—") + "\n")
+        text(two("Opened at:", new Date(shift.opened_at).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})) + "\n")
+        if(shift.closed_at) {
+          text(two("Closed by:", closedBy?.name||"—") + "\n")
+          text(two("Closed at:", new Date(shift.closed_at).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})) + "\n")
+        }
+        text(two("Opening float:", `R${parseFloat(shift.open_float||0).toFixed(2)}`) + "\n")
+        text(sep("-") + "\n")
+        add(ESC_BOLD_ON)
+        text("SALES SUMMARY\n")
+        add(ESC_BOLD_OFF)
+        text(two("Total orders:", totals.count) + "\n")
+        text(two("Cash sales:", `R${totals.cash.toFixed(2)}`) + "\n")
+        text(two("Card sales:", `R${totals.card.toFixed(2)}`) + "\n")
+        text(two("EFT sales:", `R${totals.eft.toFixed(2)}`) + "\n")
+        if(totals.tips>0) text(two("Tips:", `R${totals.tips.toFixed(2)}`) + "\n")
+        text(sep("=") + "\n")
+        add(ESC_BOLD_ON)
+        add(ESC_DBLHEIGHT_ON)
+        text(two("TOTAL REVENUE:", `R${totals.total.toFixed(2)}`) + "\n")
+        add(ESC_BOLD_OFF)
+        text(sep("-") + "\n")
+        add(ESC_BOLD_ON)
+        text("CASH RECONCILIATION\n")
+        add(ESC_BOLD_OFF)
+        text(two("System cash:", `R${totals.cash.toFixed(2)}`) + "\n")
+        text(two("Float:", `R${parseFloat(shift.open_float||0).toFixed(2)}`) + "\n")
+        text(two("Expected in drawer:", `R${(totals.cash+parseFloat(shift.open_float||0)).toFixed(2)}`) + "\n")
+        text(two("Cash counted:", `R${parseFloat(shift.cash_counted||0).toFixed(2)}`) + "\n")
+        add(ESC_BOLD_ON)
+        text(two("Variance:", `${cashVar>=0?"+":""}R${cashVar.toFixed(2)}`) + "\n")
+        add(ESC_BOLD_OFF)
+        if(shift.notes) {
+          text(sep("-") + "\n")
+          text("Notes: " + shift.notes + "\n")
+        }
+        text(sep("=") + "\n")
+        add(ESC_ALIGN_CENTER)
+        text("Printed by BrewBase\n")
+        text(new Date().toLocaleString("en-ZA") + "\n")
+        add(FEED_LINES(4))
+        if(s.cutAfter!==false) add(GS_CUT)
+        await BB_PRINTER.print(bytes)
+      } catch(e) {
+        alert("Print failed: " + e.message)
+      }
+      setPrinting(false)
     }
 
     return (
@@ -4110,7 +4152,9 @@ function ShiftsModule() {
           </div>
         )}
 
-        <Btn onClick={printReport} variant="outline" size="lg" style={{width:"100%"}} icon="🖨">Print Shift Report</Btn>
+        <Btn onClick={printReport} disabled={printing} size="lg" style={{width:"100%"}}>
+          {printing?"Printing…":"🖨 Print Shift Report" + (BB_PRINTER.connected?"":" (connect printer first)")}
+        </Btn>
       </div>
     )
   }
