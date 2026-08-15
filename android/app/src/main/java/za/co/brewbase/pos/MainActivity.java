@@ -14,3 +14,4 @@ public class MainActivity extends BridgeActivity {
         EdgeToEdge.enable(this);
     }
 }
+

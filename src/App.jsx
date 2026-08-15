@@ -5699,6 +5699,16 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
     })).filter(g=>g.options.length>0)
   }
 
+  const openLink = (menuItemId) => {
+    setSelMenuItem(menuItemId)
+    setLinkInvId("")
+    setLinkQty("1")
+    setLinkUnit("")
+    setLinkModOption("")
+    setLinkModGroup("")
+    setModal(true)
+  }
+
   const saveLink = async () => {
     if(!linkInvId||!selMenuItem) return
     setSaving(true)
