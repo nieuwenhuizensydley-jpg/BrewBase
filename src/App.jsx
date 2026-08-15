@@ -4669,8 +4669,15 @@ function PrinterModule() {
   }
 
   const connectPrinter = async () => {
-    if(!navigator.bluetooth) {
-      alert("Web Bluetooth not available.\n\nAndroid: Settings → Apps → BrewBase → Permissions → enable Bluetooth & Nearby devices.\n\nAlso make sure you're using Chrome.")
+    const isNative = !!(window.Capacitor?.isNativePlatform?.())
+    const hasPlugin = !!(window.Capacitor?.Plugins?.BluetoothPrinter)
+    console.log("isNative:", isNative, "hasPlugin:", hasPlugin, "Plugins:", Object.keys(window.Capacitor?.Plugins||{}))
+    if(!isNative) {
+      alert("Not running as native app.\n\nMake sure you installed the APK and are NOT using the browser version.")
+      return
+    }
+    if(!hasPlugin) {
+      alert("BluetoothPrinter plugin not found.\n\nAvailable plugins: " + Object.keys(window.Capacitor?.Plugins||{}).join(", "))
       return
     }
     setConnecting(true)
@@ -4728,159 +4735,208 @@ function PrinterModule() {
     </div>
   )
 
+  const [printerTab, setPrinterTab] = useState("connection")
+
   return (
-    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20,maxWidth:700}}>
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:20,maxWidth:800}}>
       <div>
         <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Printer Settings</div>
         <div style={{fontSize:13,color:C.muted}}>Configure your Bluetooth receipt printer</div>
       </div>
 
-      {/* ── CONNECTION ── */}
-      <SectionCard title="Bluetooth Connection">
-        <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:14}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
-            <div style={{width:12,height:12,borderRadius:"50%",background:connected?C.primary:C.red,boxShadow:connected?`0 0 0 4px ${C.primary}20`:"none",flexShrink:0}}/>
-            <div>
-              <div style={{fontSize:15,fontWeight:700,color:C.black}}>{connected?"● Connected":"○ Not Connected"}</div>
-              <div style={{fontSize:12,color:C.muted}}>{connected?BB_PRINTER.device?.name||"Bluetooth Printer":"No printer connected"}</div>
+      <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
+        {[["connection","🔗 Connection"],["paper","📄 Paper & Hardware"],["receipt","🧾 Receipt Design"],["kitchen","🍳 Kitchen"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setPrinterTab(id)} style={{padding:"10px 16px",border:"none",background:"transparent",cursor:"pointer",fontSize:14,fontWeight:printerTab===id?700:400,color:printerTab===id?C.primary:C.muted,borderBottom:`2px solid ${printerTab===id?C.primary:"transparent"}`,fontFamily:"Inter,sans-serif",marginBottom:-1,whiteSpace:"nowrap"}}>{label}</button>
+        ))}
+      </div>
+
+      {printerTab==="connection"&&(
+        <SectionCard title="Bluetooth Connection">
+          <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+              <div style={{width:12,height:12,borderRadius:"50%",background:connected?C.primary:C.red,boxShadow:connected?`0 0 0 4px ${C.primary}20`:"none",flexShrink:0}}/>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:C.black}}>{connected?"● Connected":"○ Not Connected"}</div>
+                <div style={{fontSize:12,color:C.muted}}>{connected?BB_PRINTER.deviceName||"Bluetooth Printer":"No printer connected"}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              {connected?<Btn variant="danger" size="sm" onClick={disconnectPrinter}>Disconnect</Btn>:<Btn size="sm" onClick={connectPrinter} disabled={connecting}>{connecting?"Searching…":"Connect Printer"}</Btn>}
             </div>
           </div>
-          <div style={{display:"flex",gap:8}}>
-            {connected
-              ? <Btn variant="danger" size="sm" onClick={disconnectPrinter}>Disconnect</Btn>
-              : <Btn size="sm" onClick={connectPrinter} disabled={connecting}>{connecting?"Searching…":"Connect Printer"}</Btn>
-            }
+          {connected&&(
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <Btn variant="secondary" size="sm" onClick={testReceipt} disabled={testing} style={{flex:1}}>{testing?"Printing…":"🖨 Test Receipt"}</Btn>
+              <Btn variant="secondary" size="sm" onClick={testKitchen} disabled={testing} style={{flex:1}}>{testing?"Printing…":"🍳 Test Kitchen"}</Btn>
+            </div>
+          )}
+          <div style={{background:C.faint,borderRadius:10,padding:"12px 14px",fontSize:13,color:C.muted,lineHeight:1.6}}>
+            <strong>To connect:</strong> Pair printer in Android Settings → Bluetooth first, then tap Connect Printer and select your printer from the list.
           </div>
-        </div>
+        </SectionCard>
+      )}
 
-        {connected&&(
-          <div style={{display:"flex",gap:8,marginBottom:14}}>
-            <Btn variant="secondary" size="sm" onClick={testReceipt} disabled={testing} style={{flex:1}}>{testing?"Printing…":"🖨 Test Receipt"}</Btn>
-            <Btn variant="secondary" size="sm" onClick={testKitchen} disabled={testing} style={{flex:1}}>{testing?"Printing…":"🍳 Test Kitchen Ticket"}</Btn>
-          </div>
-        )}
-
-        <div style={{background:C.faint,borderRadius:10,padding:"12px 14px",fontSize:13,color:C.muted,lineHeight:1.6}}>
-          <strong>Before connecting:</strong> Turn printer on → put in pairing/discoverable mode → tap Connect Printer → select your printer from the list.
-          <br/><strong>Android:</strong> Also go to Settings → Apps → BrewBase → Permissions → enable Bluetooth &amp; Nearby devices.
-        </div>
-
-        {!connected&&(
-          <div style={{background:"#e8f0f8",borderRadius:10,padding:"12px 14px",fontSize:13,color:"#3a6b9a",marginTop:10,lineHeight:1.8}}>
-            <strong>Printer not appearing?</strong><br/>
-            1. On Android go to Settings → Bluetooth → pair your printer first<br/>
-            2. Then come back here and tap Connect Printer<br/>
-            3. Your printer will appear in the device list
-          </div>
-        )}
-      </SectionCard>
-
-      {/* ── PAPER & HARDWARE ── */}
-      <SectionCard title="Paper & Hardware Settings">
+      {printerTab==="paper"&&(
         <div style={{display:"flex",flexDirection:"column",gap:16}}>
-
-          <div>
-            <label style={{fontSize:13,color:C.muted,fontWeight:600,display:"block",marginBottom:8}}>Paper Width</label>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-              {[["58","58mm (standard)","Most common — fits in pocket"],["76","76mm (medium)","Wider format"],["80","80mm (wide)","Large format receipts"]].map(([w,label,desc])=>(
-                <div key={w} onClick={()=>setPaperWidth(w)}
-                  style={{padding:"14px 12px",borderRadius:10,border:`2px solid ${paperWidth===w?C.primary:C.border}`,background:paperWidth===w?C.primaryPale:C.faint,cursor:"pointer",transition:"all 0.15s"}}>
-                  <div style={{fontSize:18,fontWeight:800,color:paperWidth===w?C.primary:C.black,marginBottom:4}}>{label}</div>
-                  <div style={{fontSize:11,color:C.muted}}>{desc}</div>
-                  <div style={{fontSize:11,color:paperWidth===w?C.primary:C.light,marginTop:4,fontWeight:600}}>{getPaperChars(w)} chars/line</div>
+          <SectionCard title="Paper Width">
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+              {[["58","58mm","32 chars · Most common"],["76","76mm","42 chars · Medium"],["80","80mm","48 chars · Wide"]].map(([w,label,desc])=>(
+                <div key={w} onClick={()=>setPaperWidth(w)} style={{padding:"16px 12px",borderRadius:12,border:`2px solid ${paperWidth===w?C.primary:C.border}`,background:paperWidth===w?C.primaryPale:C.faint,cursor:"pointer",textAlign:"center",transition:"all 0.15s"}}>
+                  <div style={{fontSize:20,fontWeight:800,color:paperWidth===w?C.primary:C.black,marginBottom:4}}>{label}</div>
+                  <div style={{fontSize:12,color:C.muted}}>{desc}</div>
                 </div>
               ))}
             </div>
-          </div>
-
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div>
-              <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:6}}>Kitchen copies per order</label>
-              <select value={kitchenCopies} onChange={e=>setKitchenCopies(parseInt(e.target.value))}
-                style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"11px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}>
-                <option value={1}>1 copy</option>
-                <option value={2}>2 copies</option>
-                <option value={3}>3 copies</option>
-              </select>
-            </div>
-            <div>
-              <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:6}}>Print delay (seconds)</label>
-              <select value={printDelay} onChange={e=>setPrintDelay(e.target.value)}
-                style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"11px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}>
-                <option value="0">No delay</option>
-                <option value="1">1 second</option>
-                <option value="2">2 seconds</option>
-                <option value="3">3 seconds</option>
-              </select>
-            </div>
-          </div>
-
-          <div style={{display:"flex",flexDirection:"column",gap:10,padding:14,background:C.faint,borderRadius:10}}>
-            <Toggle value={autoCut} onChange={setAutoCut} label="Auto-cut paper after printing"/>
-            <Toggle value={beepOnPrint} onChange={setBeepOnPrint} label="Beep when printing completes"/>
-            <Toggle value={autoPrintKitchen} onChange={setAutoPrintKitchen} label="Auto-print kitchen ticket on every sale"/>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* ── KITCHEN CATEGORIES ── */}
-      <SectionCard title="Kitchen Ticket — Categories">
-        <div style={{fontSize:13,color:C.muted,marginBottom:14}}>Items in selected categories will print a kitchen ticket automatically when ordered</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}}>
-          {cats.map(cat=>{
-            const selected = kitchenCats.includes(cat.id)
-            return(
-              <div key={cat.id} onClick={()=>setKitchenCats(prev=>selected?prev.filter(x=>x!==cat.id):[...prev,cat.id])}
-                style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:10,border:`1px solid ${selected?C.primary:C.border}`,background:selected?C.primaryPale:C.faint,cursor:"pointer",transition:"all 0.15s"}}>
-                <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${selected?C.primary:C.border}`,background:selected?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  {selected&&<span style={{color:"#fff",fontSize:11}}>✓</span>}
-                </div>
-                <span style={{fontSize:16}}>{cat.emoji}</span>
-                <span style={{fontSize:13,fontWeight:selected?600:400,color:selected?C.primary:C.black}}>{cat.name}</span>
+          </SectionCard>
+          <SectionCard title="Hardware Options">
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+              <div>
+                <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:6}}>Kitchen copies</label>
+                <select value={kitchenCopies} onChange={e=>setKitchenCopies(parseInt(e.target.value))} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"11px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                  <option value={1}>1 copy</option><option value={2}>2 copies</option><option value={3}>3 copies</option>
+                </select>
               </div>
-            )
-          })}
-          {cats.length===0&&<div style={{color:C.muted,fontSize:13}}>Add categories in Menu first</div>}
+              <div>
+                <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:6}}>Print delay</label>
+                <select value={printDelay} onChange={e=>setPrintDelay(e.target.value)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"11px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                  <option value="0">No delay</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="3">3 seconds</option>
+                </select>
+              </div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10,padding:14,background:C.faint,borderRadius:10}}>
+              <Toggle value={autoCut} onChange={setAutoCut} label="Auto-cut paper after printing"/>
+              <Toggle value={beepOnPrint} onChange={setBeepOnPrint} label="Beep when printing completes"/>
+              <Toggle value={autoPrintKitchen} onChange={setAutoPrintKitchen} label="Auto-print kitchen ticket on every sale"/>
+            </div>
+          </SectionCard>
+          <Btn onClick={saveSettings} size="lg" style={{alignSelf:"flex-start"}}>{saved?"✓ Saved!":"Save Settings"}</Btn>
         </div>
-      </SectionCard>
+      )}
 
-      {/* ── RECEIPT HEADER ── */}
-      <SectionCard title="Receipt Header">
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Input label="Store Name" value={storeName} onChange={e=>setStoreName(e.target.value)} placeholder="e.g. Ruah Brew Coffee Shop" hint="Printed in large bold text at the top"/>
-          <Input label="Tagline / Slogan" value={tagline} onChange={e=>setTagline(e.target.value)} placeholder="e.g. Where every cup tells a story"/>
-          <Input label="Address" value={address} onChange={e=>setAddress(e.target.value)} placeholder="e.g. 30 Christoffel St, Van Riebeeck Park"/>
-          <Input label="Phone Number" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="e.g. 062 356 3589"/>
-          <Input label="VAT Number (if registered)" value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="e.g. 4123456789"/>
-          <Input label="VAT Rate (%)" value={vatRate} onChange={e=>setVatRate(e.target.value)} placeholder="15" hint="Only shown if VAT is enabled on your business"/>
+      {printerTab==="receipt"&&(
+        <div style={{display:"flex",gap:20,alignItems:"flex-start",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:280,display:"flex",flexDirection:"column",gap:14}}>
+            <SectionCard title="Store Header">
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <Input label="Store Name" value={storeName} onChange={e=>setStoreName(e.target.value)} placeholder="e.g. Ruah Brew Coffee Shop"/>
+                <Input label="Tagline / Slogan" value={tagline} onChange={e=>setTagline(e.target.value)} placeholder="e.g. Where every cup tells a story"/>
+                <Input label="Address" value={address} onChange={e=>setAddress(e.target.value)} placeholder="30 Christoffel St, Van Riebeeck Park"/>
+                <Input label="Phone" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="062 356 3589"/>
+                <Input label="VAT Number" value={vatNumber} onChange={e=>setVatNumber(e.target.value)} placeholder="e.g. 4123456789"/>
+                <Input label="VAT Rate (%)" value={vatRate} onChange={e=>setVatRate(e.target.value)} placeholder="15"/>
+              </div>
+            </SectionCard>
+            <SectionCard title="What to Show on Receipt">
+              <div style={{display:"flex",flexDirection:"column",gap:8,padding:12,background:C.faint,borderRadius:10}}>
+                <Toggle value={showOrderNum} onChange={setShowOrderNum} label="Order number"/>
+                <Toggle value={showDate} onChange={setShowDate} label="Date and time"/>
+                <Toggle value={showStaff} onChange={setShowStaff} label="Staff name"/>
+                <Toggle value={showTable} onChange={setShowTable} label="Order type and table number"/>
+                <Toggle value={showTipLine} onChange={setShowTipLine} label="Tip write-in line"/>
+                <Toggle value={showTotalLine} onChange={setShowTotalLine} label="Total with tip write-in"/>
+              </div>
+            </SectionCard>
+            <SectionCard title="Footer Message">
+              <Input label="Footer Line 1" value={footer1} onChange={e=>setFooter1(e.target.value)} placeholder="Thank you for visiting!" style={{marginBottom:10}}/>
+              <Input label="Footer Line 2" value={footer2} onChange={e=>setFooter2(e.target.value)} placeholder="See you again soon."/>
+            </SectionCard>
+            <Btn onClick={saveSettings} size="lg">{saved?"✓ Settings Saved!":"Save Receipt Settings"}</Btn>
+            {connected&&<Btn variant="secondary" onClick={testReceipt} disabled={testing}>{testing?"Printing…":"🖨 Print Test Receipt"}</Btn>}
+          </div>
+          <div style={{width:200,flexShrink:0,position:"sticky",top:20}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.black,marginBottom:10,textAlign:"center"}}>Live Preview ({paperWidth}mm)</div>
+            <div style={{background:"#fff",border:`2px solid ${C.border}`,borderRadius:8,padding:"14px 10px",fontFamily:"'Courier New',monospace",fontSize:9.5,lineHeight:1.6,boxShadow:"0 4px 20px rgba(0,0,0,0.1)",whiteSpace:"pre-wrap",color:"#000",wordBreak:"break-all"}}>
+              {(()=>{
+                const W = getPaperChars(paperWidth)
+                const ctr = (s) => { const p=Math.floor((W-String(s).length)/2); return " ".repeat(Math.max(0,p))+s }
+                const two = (l,r) => { const gap=W-l.length-r.length; return l+" ".repeat(Math.max(1,gap))+r }
+                const sep = (c="-") => c.repeat(W)
+                let p = ""
+                p += ctr(storeName||"YOUR CAFE") + "
+"
+                if(tagline) p += ctr(tagline) + "
+"
+                if(address) p += ctr(address) + "
+"
+                if(phone)   p += ctr("Tel: "+phone) + "
+"
+                if(vatNumber) p += ctr("VAT: "+vatNumber) + "
+"
+                p += sep("=") + "
+"
+                if(showOrderNum) p += "Order: #TEST1234
+"
+                if(showDate)     p += "Date: "+new Date().toLocaleDateString("en-ZA")+"
+"
+                if(showStaff)    p += "Staff: Sydley
+"
+                if(showTable)    p += "Type: Sit-in - Table 4
+"
+                p += sep("-") + "
+"
+                p += "Flat White
+"
+                p += two("  2 x R32.00","R64.00") + "
+"
+                p += "  Milk: Oat Milk
+
+"
+                p += "Croissant
+"
+                p += two("  1 x R26.00","R26.00") + "
+
+"
+                p += sep("=") + "
+"
+                p += two("TOTAL","R90.00") + "
+"
+                p += two("Card","R90.00") + "
+"
+                p += sep("=") + "
+"
+                if(showTipLine) p += "Tip: ___________
+
+"
+                if(showTotalLine) p += two("Total + tip:","___________") + "
+" + sep("-") + "
+"
+                if(footer1) p += ctr(footer1) + "
+"
+                if(footer2) p += ctr(footer2) + "
+"
+                p += "
+
+"
+                return p
+              })()}
+            </div>
+            <div style={{fontSize:11,color:C.muted,textAlign:"center",marginTop:6}}>Updates as you type</div>
+          </div>
         </div>
-      </SectionCard>
+      )}
 
-      {/* ── RECEIPT CONTENT ── */}
-      <SectionCard title="Receipt Content">
-        <div style={{display:"flex",flexDirection:"column",gap:10,padding:14,background:C.faint,borderRadius:10,marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:600,color:C.black,marginBottom:4}}>Show on receipt:</div>
-          <Toggle value={showOrderNum} onChange={setShowOrderNum} label="Order number"/>
-          <Toggle value={showDate} onChange={setShowDate} label="Date and time"/>
-          <Toggle value={showStaff} onChange={setShowStaff} label="Staff name"/>
-          <Toggle value={showTable} onChange={setShowTable} label="Order type and table number"/>
-          <Toggle value={showTipLine} onChange={setShowTipLine} label="Tip write-in line (for card payments)"/>
-          <Toggle value={showTotalLine} onChange={setShowTotalLine} label="Total with tip write-in line"/>
-        </div>
-      </SectionCard>
-
-      {/* ── RECEIPT FOOTER ── */}
-      <SectionCard title="Receipt Footer">
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Input label="Footer Line 1" value={footer1} onChange={e=>setFooter1(e.target.value)} placeholder="Thank you for visiting!"/>
-          <Input label="Footer Line 2" value={footer2} onChange={e=>setFooter2(e.target.value)} placeholder="See you again soon."/>
-        </div>
-      </SectionCard>
-
-      {/* ── SAVE ── */}
-      <Btn onClick={saveSettings} size="lg" style={{alignSelf:"flex-start",minWidth:200}}>
-        {saved?"✓ Settings Saved!":"Save All Printer Settings"}
-      </Btn>
+      {printerTab==="kitchen"&&(
+        <SectionCard title="Kitchen Ticket Categories">
+          <div style={{fontSize:13,color:C.muted,marginBottom:14}}>Items in these categories print a kitchen ticket automatically</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8,marginBottom:14}}>
+            {cats.map(cat=>{
+              const selected=kitchenCats.includes(cat.id)
+              return(
+                <div key={cat.id} onClick={()=>setKitchenCats(prev=>selected?prev.filter(x=>x!==cat.id):[...prev,cat.id])}
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:10,border:`1px solid ${selected?C.primary:C.border}`,background:selected?C.primaryPale:C.faint,cursor:"pointer",transition:"all 0.15s"}}>
+                  <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${selected?C.primary:C.border}`,background:selected?C.primary:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {selected&&<span style={{color:"#fff",fontSize:11}}>✓</span>}
+                  </div>
+                  <span style={{fontSize:16}}>{cat.emoji}</span>
+                  <span style={{fontSize:13,fontWeight:selected?600:400,color:selected?C.primary:C.black}}>{cat.name}</span>
+                </div>
+              )
+            })}
+            {cats.length===0&&<div style={{color:C.muted,fontSize:13}}>Add categories in Menu first</div>}
+          </div>
+          <Btn onClick={saveSettings}>{saved?"✓ Saved!":"Save Settings"}</Btn>
+        </SectionCard>
+      )}
     </div>
   )
 }
