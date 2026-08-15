@@ -1368,11 +1368,18 @@ function POSModule() {
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
 
   // Open item modal
-  const openItem = (item) => {
-    if(item.track_stock && parseFloat(item.stock||0)<=0) {
+  const [itemVariants, setItemVariants] = useState([])
+  const [selVariant, setSelVariant]     = useState(null)
+
+  const openItem = async (item) => {
+    if(item.track_stock && parseFloat(item.stock||0)<=0 && !item.has_variants) {
       alert(`${item.name} is out of stock`)
       return
     }
+    // Load variants for this item
+    const {data:vars} = await supabase.from("bb_menu_variants").select("*").eq("menu_item_id",item.id).order("sort_order")
+    setItemVariants(vars||[])
+    setSelVariant(vars&&vars.length>0 ? vars[0] : null)
     const groups = getGroupsForItem(item.id, item.category_id)
     const init = {}
     groups.forEach(g => {
@@ -1420,7 +1427,7 @@ function POSModule() {
     setCart(prev => [...prev, {
       id: uid(),
       itemId: selItem.id,
-      name: selItem.name,
+      name: selVariant ? `${selItem.name} — ${selVariant.name}` : selItem.name,
       emoji: selItem.emoji || "☕",
       image_url: selItem.image_url,
       price: parseFloat(selItem.price) + extra,
@@ -1428,6 +1435,8 @@ function POSModule() {
       selections: selArr,
       notes: itemNote,
       category_id: selItem.category_id,
+      variant_id: selVariant?.id || null,
+      variant_name: selVariant?.name || null,
     }])
     setSelItem(null)
   }
@@ -1523,6 +1532,16 @@ function POSModule() {
       // Deduct stock from inventory using ingredient links
       try {
         const soldItems = typeof order.items==="string"?JSON.parse(order.items||"[]"):order.items||[]
+        // Deduct variant stock first
+        for(const soldItem of soldItems) {
+          if(soldItem.variant_id) {
+            const {data:variant} = await supabase.from("bb_menu_variants").select("stock").eq("id",soldItem.variant_id).single()
+            if(variant) {
+              const newStock = Math.max(0, parseFloat(variant.stock||0) - (soldItem.qty||1))
+              await supabase.from("bb_menu_variants").update({stock:newStock}).eq("id",soldItem.variant_id)
+            }
+          }
+        }
         // Get all ingredient links for sold items
         const menuItemIds = soldItems.map(si=>menuItems.find(m=>m.name===si.name)?.id).filter(Boolean)
         if(menuItemIds.length>0) {
@@ -2020,6 +2039,28 @@ function POSModule() {
       {selItem && (
         <Modal title={`${selItem.name}`} subtitle={fmt(itemPreviewPrice)} onClose={() => setSelItem(null)} width={460}>
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+            {/* VARIANTS / FLAVOURS */}
+            {itemVariants.length>0&&(
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:C.black,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>Flavour / Variant</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:8}}>
+                  {itemVariants.map(v=>{
+                    const isSel = selVariant?.id===v.id
+                    const outOfStock = parseFloat(v.stock||0)<=0
+                    return(
+                      <button key={v.id} onClick={()=>!outOfStock&&setSelVariant(v)}
+                        style={{padding:"12px 14px",borderRadius:10,border:"1px solid",borderColor:isSel?C.primary:outOfStock?C.red:C.border,background:isSel?C.primaryPale:outOfStock?"#fff5f5":C.faint,color:isSel?C.primary:outOfStock?C.red:C.black,cursor:outOfStock?"not-allowed":"pointer",fontFamily:"Inter,sans-serif",fontSize:14,fontWeight:isSel?700:400,opacity:outOfStock?0.6:1}}>
+                        {v.name}
+                        {outOfStock&&<div style={{fontSize:10,marginTop:2}}>Out of stock</div>}
+                        {!outOfStock&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{v.stock} left</div>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {getGroupsForItem(selItem.id, selItem.category_id).map(group => {
               const opts = getOptionsForGroup(group.id)
               const sel = selections[group.id] || []
@@ -2337,6 +2378,9 @@ function MenuModule() {
   const [iAvailFrom,setIAvailFrom] = useState("")
   const [iAvailTo,setIAvailTo]   = useState("")
   const [iLinkedGroups,setILinkedGroups]= useState([])
+  const [iVariants,setIVariants]       = useState([]) // [{name,invItemId,stock}]
+  const [iHasVariants,setIHasVariants] = useState(false)
+  const {data:inventoryItems}          = useData("bb_inventory")
 
   const [gName,setGName]       = useState("")
   const [gType,setGType]       = useState("single")
@@ -2345,11 +2389,15 @@ function MenuModule() {
 
   const openNewCat  = () => { setEditCat(null);  setCatName(""); setCatEmoji("☕"); setCatModal(true) }
   const openEditCat = (c)=> { setEditCat(c); setCatName(c.name); setCatEmoji(c.emoji||"☕"); setCatModal(true) }
-  const openNewItem = () => { setEditItem(null); setIName(""); setIPrice(""); setICost(""); setICat(""); setIEmoji("☕"); setIDesc(""); setITrack(false); setIStock(""); setIReorder(""); setIImageUrl(""); setIAvailFrom(""); setIAvailTo(""); setILinkedGroups([]); setItemModal(true) }
-  const openEditItem= (item)=>{
+  const openNewItem = () => { setEditItem(null); setIName(""); setIPrice(""); setICost(""); setICat(""); setIEmoji("☕"); setIDesc(""); setITrack(false); setIStock(""); setIReorder(""); setIImageUrl(""); setIAvailFrom(""); setIAvailTo(""); setILinkedGroups([]); setIVariants([]); setIHasVariants(false); setItemModal(true) }
+  const openEditItem= async (item)=>{
     setEditItem(item); setIName(item.name); setIPrice(String(item.price)); setICost(String(item.cost||"")); setICat(item.category_id||""); setIEmoji(item.emoji||"☕"); setIDesc(item.description||""); setITrack(item.track_stock||false); setIStock(String(item.stock||"")); setIReorder(String(item.reorder_level||""))
     setILinkedGroups(links.filter(l=>l.item_id===item.id).map(l=>l.group_id))
     setIImageUrl(item.image_url||""); setIAvailFrom(item.available_from||""); setIAvailTo(item.available_to||"")
+    // Load variants
+    const {data:vars} = await supabase.from("bb_menu_variants").select("*").eq("menu_item_id",item.id).order("sort_order")
+    if(vars&&vars.length>0){ setIVariants(vars); setIHasVariants(true) }
+    else { setIVariants([]); setIHasVariants(false) }
     setItemModal(true)
   }
   const openNewGroup= () => { setEditGroup(null); setGName(""); setGType("single"); setGRequired(false); setGOptions([{name:"",price_delta:0}]); setGroupModal(true) }
@@ -2375,6 +2423,17 @@ function MenuModule() {
     else { itemId=uid(); await supabase.from("bb_menu_items").insert({...p,id:itemId}) }
     await supabase.from("bb_item_modifiers").delete().eq("item_id",itemId)
     if(iLinkedGroups.length>0) await supabase.from("bb_item_modifiers").insert(iLinkedGroups.map(gid=>({id:uid(),business_id:business.id,item_id:itemId,group_id:gid})))
+    // Save variants/flavours
+    await supabase.from("bb_menu_variants").delete().eq("menu_item_id",itemId)
+    if(iHasVariants&&iVariants.filter(v=>v.name?.trim()).length>0) {
+      await supabase.from("bb_menu_variants").insert(
+        iVariants.filter(v=>v.name?.trim()).map((v,i)=>({
+          id:uid(), business_id:business.id, menu_item_id:itemId,
+          name:v.name.trim(), stock:parseFloat(v.stock)||0,
+          inv_item_id:v.inv_item_id||null, sort_order:i
+        }))
+      )
+    }
     await refreshItems(); await refreshLinks(); setSaving(false); setItemModal(false)
   }
 
@@ -2674,6 +2733,40 @@ function MenuModule() {
                 </div>
               </div>
             )}
+            {/* VARIANTS / FLAVOURS */}
+            <div style={{background:C.faint,borderRadius:12,padding:16}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:iHasVariants?14:0}}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:700,color:C.black}}>Flavours / Variants</div>
+                  <div style={{fontSize:12,color:C.muted}}>e.g. Red Bull: Apple, Strawberry, Tropical</div>
+                </div>
+                <Toggle value={iHasVariants} onChange={v=>{ setIHasVariants(v); if(v&&iVariants.length===0) setIVariants([{name:"",stock:"",inv_item_id:""}]) }}/>
+              </div>
+              {iHasVariants&&(
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Each flavour tracks stock separately. Link to an inventory item for auto-deduction.</div>
+                  {iVariants.map((v,idx)=>(
+                    <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 80px 1fr auto",gap:8,alignItems:"center"}}>
+                      <input value={v.name} onChange={e=>setIVariants(prev=>prev.map((x,i)=>i===idx?{...x,name:e.target.value}:x))}
+                        placeholder="Flavour name (e.g. Apple)"
+                        style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                      <input type="number" value={v.stock} onChange={e=>setIVariants(prev=>prev.map((x,i)=>i===idx?{...x,stock:e.target.value}:x))}
+                        placeholder="Stock"
+                        style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                      <select value={v.inv_item_id||""} onChange={e=>setIVariants(prev=>prev.map((x,i)=>i===idx?{...x,inv_item_id:e.target.value}:x))}
+                        style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                        <option value="">No inventory link</option>
+                        {inventoryItems.map(inv=><option key={inv.id} value={inv.id}>{inv.name}</option>)}
+                      </select>
+                      <button onClick={()=>setIVariants(prev=>prev.filter((_,i)=>i!==idx))}
+                        style={{background:"#fff5f5",border:`1px solid ${C.red}30`,borderRadius:8,color:C.red,cursor:"pointer",padding:"10px 12px",fontSize:16,fontFamily:"Inter,sans-serif"}}>🗑</button>
+                    </div>
+                  ))}
+                  <Btn variant="secondary" size="sm" onClick={()=>setIVariants(prev=>[...prev,{name:"",stock:"",inv_item_id:""}])} style={{alignSelf:"flex-start"}}>+ Add Flavour</Btn>
+                </div>
+              )}
+            </div>
+
             <div style={{display:"flex",gap:10}}>
               <Btn onClick={saveItem} disabled={saving||!iName.trim()||!iPrice} style={{flex:1}} size="lg">{saving?"Saving…":editItem?"Update Item":"Add to Menu"}</Btn>
               <Btn variant="secondary" onClick={()=>setItemModal(false)} style={{flex:1}} size="lg">Cancel</Btn>
@@ -4381,102 +4474,127 @@ function buildKitchenBytes(order, items, kitchenCatIds=[], settings={}) {
 }
 
 // ── BLUETOOTH PRINTER ─────────────────────────────────────────────────────────
+// Uses native Java BluetoothPrinterPlugin - works in Android app via SPP/RFCOMM
+// Falls back to Web Bluetooth in Chrome browser
 const BB_PRINTER = {
-  device: null,
-  server: null,
-  char: null,
   connected: false,
+  deviceName: null,
+  _webChar: null,
+  _webDevice: null,
+
+  plugin() {
+    try { return window.Capacitor?.Plugins?.BluetoothPrinter || null } catch(e) { return null }
+  },
+
+  isNative() {
+    return !!(window.Capacitor?.isNativePlatform?.() && this.plugin())
+  },
 
   async connect() {
+    if(this.isNative()) return await this._connectNative()
+    return await this._connectWebBluetooth()
+  },
+
+  async _connectNative() {
+    const plugin = this.plugin()
     try {
-      // Check if Web Bluetooth is supported
-      if(!navigator.bluetooth) {
-        alert("Bluetooth not available.\n\nPlease:\n1. Make sure you are using the BrewBase Android app\n2. Go to Settings → Apps → BrewBase → Permissions\n3. Enable Nearby devices / Bluetooth\n4. Try again")
-        return false
-      }
-      // Check if Bluetooth is enabled
-      let available = true
-      try { available = await navigator.bluetooth.getAvailability() } catch(e){}
-      if(!available) {
-        alert("Bluetooth is turned off.\n\nPlease turn on Bluetooth in your Android settings and try again.")
+      const result = await plugin.getPairedDevices()
+      const devices = result.devices || []
+
+      if(devices.length === 0) {
+        alert("No paired Bluetooth devices found.\n\nPair your printer first:\n1. Settings → Bluetooth on your tablet\n2. Turn on printer\n3. Tap printer name to pair\n4. Come back and tap Connect Printer")
         return false
       }
 
-      // Request permission and select device
-      this.device = await navigator.bluetooth.requestDevice({
+      const deviceNames = devices.map((d,i) => `${i+1}. ${d.name}`).join("\n")
+      const choice = prompt(`Choose your printer:\n\n${deviceNames}\n\nType the number:`)
+      if(!choice) return false
+
+      const idx = parseInt(choice) - 1
+      if(idx < 0 || idx >= devices.length) { alert("Invalid selection"); return false }
+
+      const device = devices[idx]
+      const cr = await plugin.connect({ address: device.address })
+
+      if(cr.connected) {
+        this.connected = true
+        this.deviceName = cr.name || device.name
+        return true
+      }
+      return false
+    } catch(e) {
+      alert("Bluetooth error: " + (e.message||e) + "\n\nMake sure Bluetooth is ON and printer is paired in Android Settings.")
+      return false
+    }
+  },
+
+  async _connectWebBluetooth() {
+    try {
+      if(!navigator.bluetooth) {
+        alert("Web Bluetooth not available.\n\nUse Chrome browser at:\nbrew-base-chi.vercel.app")
+        return false
+      }
+      const device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: [
           "000018f0-0000-1000-8000-00805f9b34fb",
           "e7810a71-73ae-499d-8c15-faa9aef0c3f2",
           "49535343-fe7d-4ae5-8fa9-9fafd205e455",
           "0000ff00-0000-1000-8000-00805f9b34fb",
-          "00001101-0000-1000-8000-00805f9b34fb",
+          "0000ffe0-0000-1000-8000-00805f9b34fb",
         ]
       })
-
-      this.device.addEventListener("gattserverdisconnected", () => {
-        this.connected = false
-        this.char = null
-        setTimeout(() => this.reconnect(), 3000)
-      })
-
-      await this._connect()
-      return true
-
+      const server = await device.gatt.connect()
+      const services = await server.getPrimaryServices()
+      for(const svc of services) {
+        try {
+          const chars = await svc.getCharacteristics()
+          for(const char of chars) {
+            if(char.properties.write || char.properties.writeWithoutResponse) {
+              this._webChar = char
+              this._webDevice = device
+              this.connected = true
+              this.deviceName = device.name
+              device.addEventListener("gattserverdisconnected", () => { this.connected = false; this._webChar = null })
+              return true
+            }
+          }
+        } catch(e) {}
+      }
+      alert("Connected but no printer characteristic found.")
+      return false
     } catch(e) {
-      console.error("Printer connect failed:", e)
-      if(e.name === "NotFoundError" || e.message?.includes("cancelled")) {
-        // User cancelled - not an error
-        return false
-      }
-      if(e.name === "SecurityError" || e.message?.includes("permission")) {
-        alert("Bluetooth permission denied.\n\nGo to:\nSettings → Apps → BrewBase → Permissions → Bluetooth\nand enable it, then try again.")
-      } else if(e.name === "NotSupportedError") {
-        alert("Web Bluetooth not supported.\n\nMake sure you're using Chrome on Android and the app has Bluetooth permissions.")
-      } else {
-        alert(`Could not connect to printer.\n\nMake sure:\n• Printer is turned on\n• Printer is in pairing mode\n• You are within 5 metres\n\nError: ${e.message}`)
-      }
+      if(e.name === "NotFoundError" || e.message?.includes("cancelled")) return false
+      alert("Connection failed: " + e.message)
       return false
     }
   },
 
-  async _connect() {
-    this.server = await this.device.gatt.connect()
-    const services = await this.server.getPrimaryServices()
-    for(const service of services) {
-      try {
-        const chars = await service.getCharacteristics()
-        for(const char of chars) {
-          if(char.properties.write || char.properties.writeWithoutResponse) {
-            this.char = char
-            this.connected = true
-            return
-          }
-        }
-      } catch(e) { /* try next service */ }
-    }
-    throw new Error("No writable characteristic found on printer. Make sure you selected the correct printer.")
-  },
-
-  async reconnect() {
-    if(!this.device || this.connected) return
-    try { await this._connect() } catch(e) { /* silent retry */ }
-  },
-
   async print(bytes) {
-    if(!this.connected || !this.char) throw new Error("Printer not connected")
+    if(!this.connected) throw new Error("Printer not connected")
+    const arr = Array.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes))
+
+    if(this.isNative()) {
+      const b64 = btoa(arr.map(b => String.fromCharCode(b)).join(""))
+      await this.plugin().print({ data: b64 })
+      return
+    }
+
+    const char = this._webChar
+    if(!char) throw new Error("Not connected")
     const CHUNK = 512
-    for(let i = 0; i < bytes.length; i += CHUNK) {
-      const chunk = bytes.slice(i, i + CHUNK)
-      await this.char.writeValue(chunk)
-      await new Promise(r => setTimeout(r, 50))
+    for(let i = 0; i < arr.length; i += CHUNK) {
+      const chunk = new Uint8Array(arr.slice(i, i + CHUNK))
+      try { await char.writeValueWithoutResponse(chunk) }
+      catch(e) { await char.writeValue(chunk) }
+      await new Promise(r => setTimeout(r, 60))
     }
   },
 
-  disconnect() {
-    if(this.device?.gatt?.connected) this.device.gatt.disconnect()
-    this.connected = false
-    this.char = null
+  async disconnect() {
+    if(this.isNative()) { try { await this.plugin().disconnect() } catch(e) {} }
+    else if(this._webDevice?.gatt?.connected) { this._webDevice.gatt.disconnect() }
+    this.connected = false; this.deviceName = null; this._webChar = null; this._webDevice = null
   }
 }
 
