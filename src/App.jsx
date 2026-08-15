@@ -4863,61 +4863,31 @@ function PrinterModule() {
                 const two = (l,r) => { const gap=W-l.length-r.length; return l+" ".repeat(Math.max(1,gap))+r }
                 const sep = (c="-") => c.repeat(W)
                 let p = ""
-                p += ctr(storeName||"YOUR CAFE") + "
-"
-                if(tagline) p += ctr(tagline) + "
-"
-                if(address) p += ctr(address) + "
-"
-                if(phone)   p += ctr("Tel: "+phone) + "
-"
-                if(vatNumber) p += ctr("VAT: "+vatNumber) + "
-"
-                p += sep("=") + "
-"
-                if(showOrderNum) p += "Order: #TEST1234
-"
-                if(showDate)     p += "Date: "+new Date().toLocaleDateString("en-ZA")+"
-"
-                if(showStaff)    p += "Staff: Sydley
-"
-                if(showTable)    p += "Type: Sit-in - Table 4
-"
-                p += sep("-") + "
-"
-                p += "Flat White
-"
-                p += two("  2 x R32.00","R64.00") + "
-"
-                p += "  Milk: Oat Milk
-
-"
-                p += "Croissant
-"
-                p += two("  1 x R26.00","R26.00") + "
-
-"
-                p += sep("=") + "
-"
-                p += two("TOTAL","R90.00") + "
-"
-                p += two("Card","R90.00") + "
-"
-                p += sep("=") + "
-"
-                if(showTipLine) p += "Tip: ___________
-
-"
-                if(showTotalLine) p += two("Total + tip:","___________") + "
-" + sep("-") + "
-"
-                if(footer1) p += ctr(footer1) + "
-"
-                if(footer2) p += ctr(footer2) + "
-"
-                p += "
-
-"
+                p += ctr(storeName||"YOUR CAFE") + "\n"
+                if(tagline) p += ctr(tagline) + "\n"
+                if(address) p += ctr(address) + "\n"
+                if(phone)   p += ctr("Tel: "+phone) + "\n"
+                if(vatNumber) p += ctr("VAT: "+vatNumber) + "\n"
+                p += sep("=") + "\n"
+                if(showOrderNum) p += "Order: #TEST1234\n"
+                if(showDate)     p += "Date: "+new Date().toLocaleDateString("en-ZA")+"\n"
+                if(showStaff)    p += "Staff: Sydley\n"
+                if(showTable)    p += "Type: Sit-in - Table 4\n"
+                p += sep("-") + "\n"
+                p += "Flat White\n"
+                p += two("  2 x R32.00","R64.00") + "\n"
+                p += "  Milk: Oat Milk\n\n"
+                p += "Croissant\n"
+                p += two("  1 x R26.00","R26.00") + "\n\n"
+                p += sep("=") + "\n"
+                p += two("TOTAL","R90.00") + "\n"
+                p += two("Card","R90.00") + "\n"
+                p += sep("=") + "\n"
+                if(showTipLine) p += "Tip: ___________\n\n"
+                if(showTotalLine) p += two("Total + tip:","___________") + "\n" + sep("-") + "\n"
+                if(footer1) p += ctr(footer1) + "\n"
+                if(footer2) p += ctr(footer2) + "\n"
+                p += "\n\n"
                 return p
               })()}
             </div>
