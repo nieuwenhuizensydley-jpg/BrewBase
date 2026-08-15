@@ -1588,6 +1588,13 @@ function POSModule() {
               if(!menuItem) continue
               const itemLinks = links.filter(l=>l.menu_item_id===menuItem.id)
               for(const link of itemLinks) {
+                // If link has a modifier trigger, check if that modifier was selected
+                if(link.modifier_option_name) {
+                  const selOptions = (soldItem.selections||[]).flatMap(s=>(s.options||[]).map(o=>o.label))
+                  if(!selOptions.some(label=>label===link.modifier_option_name || label?.toLowerCase()===link.modifier_option_name?.toLowerCase())) {
+                    continue // this modifier wasn't chosen, skip
+                  }
+                }
                 const qty = (parseFloat(link.quantity)||1)*(soldItem.qty||1)
                 deductions[link.inventory_item_id] = (deductions[link.inventory_item_id]||0) + qty
               }
@@ -5673,7 +5680,12 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
   const [linkInvId, setLinkInvId] = useState("")
   const [linkQty, setLinkQty] = useState("1")
   const [linkUnit, setLinkUnit] = useState("")
+  const [linkModOption, setLinkModOption] = useState("") // modifier option name that triggers this link
+  const [linkModGroup, setLinkModGroup] = useState("") // modifier group name
   const [saving, setSaving] = useState(false)
+  const {data:modGroups} = useData("bb_modifier_groups")
+  const {data:modOptions} = useData("bb_modifier_options")
+  const {data:itemModLinks} = useData("bb_item_modifiers")
 
   // Group links by menu item
   const grouped = menuItems.map(m => ({
@@ -5686,7 +5698,19 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
     setLinkInvId("")
     setLinkQty("1")
     setLinkUnit("")
+    setLinkModOption("")
+    setLinkModGroup("")
     setModal(true)
+  }
+
+  // Get modifier options for a menu item
+  const getModOptionsForItem = (menuItemId) => {
+    const groupIds = itemModLinks.filter(l=>l.item_id===menuItemId).map(l=>l.group_id)
+    const groups = modGroups.filter(g=>groupIds.includes(g.id))
+    return groups.map(g=>({
+      group: g,
+      options: modOptions.filter(o=>o.group_id===g.id)
+    }))
   }
 
   const saveLink = async () => {
@@ -5698,7 +5722,9 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
       menu_item_id:selMenuItem,
       inventory_item_id:linkInvId,
       quantity:parseFloat(linkQty)||1,
-      unit:linkUnit||invItem?.unit||"units"
+      unit:linkUnit||invItem?.unit||"units",
+      modifier_option_name: linkModOption||null,
+      modifier_group_name: linkModGroup||null,
     })
     await refreshLinks()
     setSaving(false); setModal(false)
@@ -5743,7 +5769,13 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
                   <div style={{fontSize:18}}>📦</div>
                   <div style={{flex:1}}>
                     <div style={{fontSize:13,fontWeight:600,color:C.black}}>{invItem?.name||"Unknown item"}</div>
-                    <div style={{fontSize:12,color:C.muted}}>Deduct <strong>{link.quantity} {link.unit||invItem?.unit||"units"}</strong> per sale · Current stock: <strong style={{color:parseFloat(invItem?.stock||0)<=parseFloat(invItem?.reorder_level||0)?C.red:C.primary}}>{invItem?.stock||0} {invItem?.unit}</strong></div>
+                    <div style={{fontSize:12,color:C.muted}}>
+                      {link.modifier_option_name
+                        ? <span>Only when <strong style={{color:C.primary}}>{link.modifier_option_name}</strong> selected · Deduct <strong>{link.quantity} {link.unit||invItem?.unit}</strong></span>
+                        : <span>Always deduct <strong>{link.quantity} {link.unit||invItem?.unit||"units"}</strong> per sale</span>
+                      }
+                      {" · "}Stock: <strong style={{color:parseFloat(invItem?.stock||0)<=parseFloat(invItem?.reorder_level||0)?C.red:C.primary}}>{invItem?.stock||0} {invItem?.unit}</strong>
+                    </div>
                   </div>
                   <button onClick={()=>deleteLink(link.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:4}}>🗑</button>
                 </div>
@@ -5759,10 +5791,17 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
       {menuItems.length===0&&<Empty icon="☕" title="No menu items" message="Add menu items first, then link ingredients"/>}
 
       {modal&&(
-        <Modal title="Link Ingredient" subtitle={`To: ${menuItems.find(m=>m.id===selMenuItem)?.name}`} onClose={()=>setModal(false)} width={420}>
+        <Modal title="Link Ingredient" subtitle={`To: ${menuItems.find(m=>m.id===selMenuItem)?.name}`} onClose={()=>setModal(false)} width={460}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+            <div style={{background:C.faint,borderRadius:10,padding:"12px 14px",fontSize:13,color:C.muted,lineHeight:1.6}}>
+              <strong>Two types of links:</strong><br/>
+              <strong>Always deduct</strong> — deducts every time this item is sold (e.g. 2 slices bread per sandwich)<br/>
+              <strong>Only when modifier chosen</strong> — deducts only when a specific option is selected (e.g. White bread deducts white, Brown deducts brown)
+            </div>
+
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Inventory Item</label>
+              <label style={{fontSize:13,color:C.muted,fontWeight:500}}>Inventory Item to deduct</label>
               <select value={linkInvId} onChange={e=>{ setLinkInvId(e.target.value); const inv=items.find(i=>i.id===e.target.value); setLinkUnit(inv?.unit||"units") }}
                 style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.black,padding:"13px 16px",fontSize:15,fontFamily:"Inter,sans-serif",outline:"none"}}>
                 <option value="">Select inventory item…</option>
@@ -5771,15 +5810,47 @@ function IngredientLinksTab({items, menuItems, links, business, refreshLinks}) {
                 ))}
               </select>
             </div>
+
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <Input label="Quantity to deduct" type="number" value={linkQty} onChange={e=>setLinkQty(e.target.value)} placeholder="1" hint="How much is used per sale"/>
-              <Input label="Unit" value={linkUnit} onChange={e=>setLinkUnit(e.target.value)} placeholder="e.g. packets, slices, ml"/>
+              <Input label="Quantity to deduct" type="number" value={linkQty} onChange={e=>setLinkQty(e.target.value)} placeholder="1" hint="Amount per sale"/>
+              <Input label="Unit" value={linkUnit} onChange={e=>setLinkUnit(e.target.value)} placeholder="e.g. slices, packets"/>
             </div>
+
+            {/* Modifier trigger */}
+            <div style={{background:C.faint,borderRadius:10,padding:14}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.black,marginBottom:10}}>Only deduct when this modifier is chosen (optional)</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {getModOptionsForItem(selMenuItem).length===0?(
+                  <div style={{fontSize:12,color:C.muted}}>No modifiers linked to this item. Leave blank to always deduct.</div>
+                ):getModOptionsForItem(selMenuItem).map(({group,options})=>(
+                  <div key={group.id}>
+                    <div style={{fontSize:12,color:C.muted,fontWeight:600,marginBottom:4}}>{group.name}</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      <button onClick={()=>{ setLinkModGroup(""); setLinkModOption("") }}
+                        style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${!linkModOption?C.primary:C.border}`,background:!linkModOption?C.primaryPale:"transparent",color:!linkModOption?C.primary:C.muted,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                        Always deduct
+                      </button>
+                      {options.map(opt=>(
+                        <button key={opt.id} onClick={()=>{ setLinkModGroup(group.name); setLinkModOption(opt.name) }}
+                          style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${linkModOption===opt.name?C.primary:C.border}`,background:linkModOption===opt.name?C.primaryPale:"transparent",color:linkModOption===opt.name?C.primary:C.muted,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                          {opt.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {linkInvId&&(
-              <div style={{background:C.faint,borderRadius:10,padding:"12px 14px",fontSize:13,color:C.muted}}>
-                Every time <strong>{menuItems.find(m=>m.id===selMenuItem)?.name}</strong> is sold, <strong>{linkQty} {linkUnit}</strong> of <strong>{items.find(i=>i.id===linkInvId)?.name}</strong> will be deducted automatically.
+              <div style={{background:"#edf7f0",borderRadius:10,padding:"12px 14px",fontSize:13,color:C.black}}>
+                {linkModOption
+                  ? <>When <strong>{menuItems.find(m=>m.id===selMenuItem)?.name}</strong> is sold with <strong>{linkModOption}</strong>, deduct <strong>{linkQty} {linkUnit}</strong> of <strong>{items.find(i=>i.id===linkInvId)?.name}</strong></>
+                  : <>Every time <strong>{menuItems.find(m=>m.id===selMenuItem)?.name}</strong> is sold, deduct <strong>{linkQty} {linkUnit}</strong> of <strong>{items.find(i=>i.id===linkInvId)?.name}</strong></>
+                }
               </div>
             )}
+
             <div style={{display:"flex",gap:10}}>
               <Btn onClick={saveLink} disabled={saving||!linkInvId||!linkQty} style={{flex:1}} size="lg">{saving?"Saving…":"Save Link"}</Btn>
               <Btn variant="secondary" onClick={()=>setModal(false)} style={{flex:1}} size="lg">Cancel</Btn>
