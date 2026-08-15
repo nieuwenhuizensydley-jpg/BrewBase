@@ -1430,7 +1430,7 @@ function POSModule() {
       name: selVariant ? `${selItem.name} — ${selVariant.name}` : selItem.name,
       emoji: selItem.emoji || "☕",
       image_url: selItem.image_url,
-      price: parseFloat(selItem.price) + extra,
+      price: parseFloat(selItem.price) + extra + parseFloat(selVariant?.price_delta||0),
       qty: selQty,
       selections: selArr,
       notes: itemNote,
@@ -2048,12 +2048,17 @@ function POSModule() {
                   {itemVariants.map(v=>{
                     const isSel = selVariant?.id===v.id
                     const outOfStock = parseFloat(v.stock||0)<=0
+                    const priceDelta = parseFloat(v.price_delta||0)
                     return(
                       <button key={v.id} onClick={()=>!outOfStock&&setSelVariant(v)}
-                        style={{padding:"12px 14px",borderRadius:10,border:"1px solid",borderColor:isSel?C.primary:outOfStock?C.red:C.border,background:isSel?C.primaryPale:outOfStock?"#fff5f5":C.faint,color:isSel?C.primary:outOfStock?C.red:C.black,cursor:outOfStock?"not-allowed":"pointer",fontFamily:"Inter,sans-serif",fontSize:14,fontWeight:isSel?700:400,opacity:outOfStock?0.6:1}}>
-                        {v.name}
-                        {outOfStock&&<div style={{fontSize:10,marginTop:2}}>Out of stock</div>}
-                        {!outOfStock&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>{v.stock} left</div>}
+                        style={{padding:"12px 14px",borderRadius:10,border:"1px solid",borderColor:isSel?C.primary:outOfStock?C.red:C.border,background:isSel?C.primaryPale:outOfStock?"#fff5f5":C.faint,color:isSel?C.primary:outOfStock?C.red:C.black,cursor:outOfStock?"not-allowed":"pointer",fontFamily:"Inter,sans-serif",fontSize:14,fontWeight:isSel?700:400,opacity:outOfStock?0.6:1,textAlign:"left"}}>
+                        <div>{v.name}</div>
+                        {priceDelta>0&&<div style={{fontSize:11,color:isSel?C.primary:C.green,fontWeight:600}}>+{fmt(priceDelta)}</div>}
+                        {priceDelta<0&&<div style={{fontSize:11,color:C.amber,fontWeight:600}}>{fmt(priceDelta)}</div>}
+                        {outOfStock
+                          ? <div style={{fontSize:10,marginTop:2}}>Out of stock</div>
+                          : <div style={{fontSize:10,color:C.muted,marginTop:2}}>{v.stock} left</div>
+                        }
                       </button>
                     )
                   })}
@@ -2430,6 +2435,7 @@ function MenuModule() {
         iVariants.filter(v=>v.name?.trim()).map((v,i)=>({
           id:uid(), business_id:business.id, menu_item_id:itemId,
           name:v.name.trim(), stock:parseFloat(v.stock)||0,
+          price_delta:parseFloat(v.price_delta)||0,
           inv_item_id:v.inv_item_id||null, sort_order:i
         }))
       )
@@ -2746,12 +2752,16 @@ function MenuModule() {
                 <div style={{display:"flex",flexDirection:"column",gap:10}}>
                   <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Each flavour tracks stock separately. Link to an inventory item for auto-deduction.</div>
                   {iVariants.map((v,idx)=>(
-                    <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 80px 1fr auto",gap:8,alignItems:"center"}}>
+                    <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 80px 80px 1fr auto",gap:8,alignItems:"center"}}>
                       <input value={v.name} onChange={e=>setIVariants(prev=>prev.map((x,i)=>i===idx?{...x,name:e.target.value}:x))}
                         placeholder="Flavour name (e.g. Apple)"
                         style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
                       <input type="number" value={v.stock} onChange={e=>setIVariants(prev=>prev.map((x,i)=>i===idx?{...x,stock:e.target.value}:x))}
                         placeholder="Stock"
+                        style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                      <input type="number" value={v.price_delta||""} onChange={e=>setIVariants(prev=>prev.map((x,i)=>i===idx?{...x,price_delta:e.target.value}:x))}
+                        placeholder="+R0"
+                        title="Extra cost for this variant (leave blank if same price)"
                         style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}/>
                       <select value={v.inv_item_id||""} onChange={e=>setIVariants(prev=>prev.map((x,i)=>i===idx?{...x,inv_item_id:e.target.value}:x))}
                         style={{background:"#fff",border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 12px",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none"}}>
@@ -2762,6 +2772,7 @@ function MenuModule() {
                         style={{background:"#fff5f5",border:`1px solid ${C.red}30`,borderRadius:8,color:C.red,cursor:"pointer",padding:"10px 12px",fontSize:16,fontFamily:"Inter,sans-serif"}}>🗑</button>
                     </div>
                   ))}
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>Columns: Name · Stock · Extra cost (R) · Inventory link</div>
                   <Btn variant="secondary" size="sm" onClick={()=>setIVariants(prev=>[...prev,{name:"",stock:"",inv_item_id:""}])} style={{alignSelf:"flex-start"}}>+ Add Flavour</Btn>
                 </div>
               )}
