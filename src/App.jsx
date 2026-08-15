@@ -4152,6 +4152,42 @@ function ShiftsModule() {
           </div>
         )}
 
+        {/* Orders in this shift */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+          <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8}}>Orders ({shiftOrders(shift).length})</div>
+          </div>
+          {shiftOrders(shift).length===0
+            ? <div style={{padding:20,textAlign:"center",color:C.muted,fontSize:13}}>No orders in this shift</div>
+            : shiftOrders(shift).sort((a,b)=>b.time?.localeCompare(a.time||"")).map(order=>{
+                const orderItems = typeof order.items==="string"?JSON.parse(order.items||"[]"):order.items||[]
+                return(
+                  <div key={order.id} style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                        <span style={{fontSize:12,color:C.muted}}>{order.time?.slice(0,5)}</span>
+                        <span style={{fontSize:13,fontWeight:600,color:C.black}}>{orderItems.map(i=>`${i.qty}x ${i.name}`).join(", ")}</span>
+                      </div>
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                        <Chip color={(order.method==="cash"?"amber":order.method==="card"?"blue":"primary")} size="sm">{order.method?.toUpperCase()||"CARD"}</Chip>
+                        <span style={{fontSize:13,fontWeight:700,color:C.primary}}>{fmt(order.total)}</span>
+                        {order.customer_name&&<span style={{fontSize:11,color:C.muted}}>· {order.customer_name}</span>}
+                      </div>
+                    </div>
+                    <Btn size="sm" variant="secondary" onClick={async()=>{
+                      if(!BB_PRINTER.connected){ alert("Connect printer first"); return }
+                      try {
+                        const s = getReceiptSettings()
+                        const bytes = buildReceiptBytes(order, order.items, s)
+                        await BB_PRINTER.print(bytes)
+                      } catch(e){ alert("Print failed: "+e.message) }
+                    }}>🖨 Reprint</Btn>
+                  </div>
+                )
+              })
+          }
+        </div>
+
         <Btn onClick={printReport} disabled={printing} size="lg" style={{width:"100%"}}>
           {printing?"Printing…":"🖨 Print Shift Report" + (BB_PRINTER.connected?"":" (connect printer first)")}
         </Btn>
