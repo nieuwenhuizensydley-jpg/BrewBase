@@ -4379,6 +4379,7 @@ function buildReceiptBytes(order, items, settings={}) {
     beepAfter:    settings.beepAfter    === true,
     boldTotal:    settings.boldTotal    !== false,
     paperWidth:   settings.paperWidth   || "58",
+    nameStyle:    settings.nameStyle    || "large", // large | double | normal
   }
 
   const bytes = []
@@ -4391,17 +4392,27 @@ function buildReceiptBytes(order, items, settings={}) {
   add(ESC_INIT)
   add(LINE_SPACING(30))
 
-  // ── HEADER ──
+  // ── HEADER — use software centering for reliability ──
+  // Store name
   add(ESC_ALIGN_CENTER)
   add(ESC_BOLD_ON)
-  add(ESC_DBLWIDTH_ON)
-  text(S.storeName + "\n")
-  add(ESC_DBLWIDTH_OFF)
+  if(S.nameStyle === "double") {
+    add(ESC_DBLWIDTH_ON)
+    text(S.storeName + "\n")
+    add(ESC_DBLWIDTH_OFF)
+  } else if(S.nameStyle === "large") {
+    add(ESC_DBLHEIGHT_ON)
+    text(S.storeName + "\n")
+    add(ESC_DBLWIDTH_OFF)
+  } else {
+    text(S.storeName + "\n")
+  }
   add(ESC_BOLD_OFF)
   if(S.tagline)   { text(S.tagline + "\n") }
   if(S.address)   { text(S.address + "\n") }
   if(S.phone)     { text("Tel: " + S.phone + "\n") }
   if(S.vatNumber) { text("VAT No: " + S.vatNumber + "\n") }
+  add(ESC_ALIGN_LEFT)
   text("\n")
   sep("=")
 
@@ -4731,6 +4742,7 @@ function PrinterModule() {
     showOrderNum, showStaff, showDate, showTable,
     showTipLine, showTotalLine,
     cutAfter: autoCut, beepAfter: beepOnPrint,
+    nameStyle: localStorage.getItem("bb_name_style")||"large",
   })
 
   const saveSettings = () => {
@@ -4902,6 +4914,16 @@ function PrinterModule() {
             <SectionCard title="Store Header">
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 <Input label="Store Name" value={storeName} onChange={e=>setStoreName(e.target.value)} placeholder="e.g. Ruah Brew Coffee Shop"/>
+                <div>
+                  <label style={{fontSize:13,color:C.muted,fontWeight:500,display:"block",marginBottom:4}}>Store Name Style on Receipt</label>
+                  <select value={localStorage.getItem("bb_name_style")||"large"}
+                    onChange={e=>{ localStorage.setItem("bb_name_style",e.target.value); setSaved(false) }}
+                    style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none"}}>
+                    <option value="large">Large (double height)</option>
+                    <option value="double">Extra Large (double width + height)</option>
+                    <option value="normal">Normal size</option>
+                  </select>
+                </div>
                 <Input label="Tagline / Slogan" value={tagline} onChange={e=>setTagline(e.target.value)} placeholder="e.g. Where every cup tells a story"/>
                 <Input label="Address" value={address} onChange={e=>setAddress(e.target.value)} placeholder="30 Christoffel St, Van Riebeeck Park"/>
                 <Input label="Phone" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="062 356 3589"/>
