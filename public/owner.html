@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+<meta name="apple-mobile-web-app-title" content="BrewBase"/>
+<meta name="theme-color" content="#4a7c59"/>
+<title>BrewBase Owner</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,Inter,sans-serif;background:#f5f3ef;color:#0e0e0e}
+:root{--p:#4a7c59;--pp:#edf7f0;--pd:#2d5a3d;--bg:#f5f3ef;--s:#fff;--b:#e4e0da;--m:#6b6b6b;--l:#9a9a9a;--a:#b5803a;--ap:#fdf4e7;--r:#d64545;--rp:#fff5f5;--sb:#0e0e0e}
+#root{height:100vh;display:flex;flex-direction:column}
+.hdr{background:var(--sb);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;padding-top:max(12px,env(safe-area-inset-top))}
+.cnt{flex:1;overflow-y:auto;padding:14px 14px 90px}
+.bnav{background:#fff;border-top:1px solid var(--b);display:flex;flex-shrink:0;padding-bottom:env(safe-area-inset-bottom)}
+.nb{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 4px;border:none;background:transparent;color:var(--l);font-size:10px;cursor:pointer;font-family:inherit}
+.nb.on{color:var(--p);font-weight:700}
+.ic{font-size:21px;display:block}
+#ls{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;background:var(--sb)}
+.ll{width:76px;height:76px;border-radius:18px;background:var(--p);display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:#fff;margin-bottom:18px;font-family:Georgia,serif}
+.lt{font-size:24px;font-weight:800;color:#fff;margin-bottom:4px;font-family:Georgia,serif}
+.ls2{font-size:14px;color:rgba(255,255,255,.5);margin-bottom:32px}
+.lf{width:100%;max-width:300px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.15);border-radius:11px;color:#fff;padding:13px 15px;font-size:16px;outline:none;margin-bottom:10px;font-family:inherit}
+.lb{width:100%;max-width:300px;background:var(--p);color:#fff;border:none;border-radius:11px;padding:14px;font-size:16px;font-weight:700;cursor:pointer;margin-top:4px;font-family:inherit}
+.lb:disabled{opacity:.5}
+.le{color:#ff6b6b;font-size:13px;margin-top:6px;text-align:center}
+.card{background:#fff;border-radius:13px;border:1px solid var(--b);overflow:hidden;margin-bottom:12px}
+.ch{padding:13px 15px;border-bottom:1px solid var(--b);font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:space-between}
+.cr{display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-bottom:1px solid #f8f7f5}
+.cr:last-child{border-bottom:none}
+.rl{font-size:13px;color:var(--m)}
+.rv{font-size:14px;font-weight:700}.rv.g{color:var(--p)}.rv.r{color:var(--r)}.rv.a{color:var(--a)}
+.kgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+.kpi{background:#fff;border-radius:13px;padding:15px 13px;border:1px solid var(--b)}
+.kl{font-size:10px;color:var(--m);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
+.kv{font-size:23px;font-weight:800}.ks{font-size:11px;color:var(--m);margin-top:2px}
+.sb{background:#fff;border-radius:13px;padding:13px 15px;margin-bottom:12px;display:flex;align-items:center;gap:11px;border:1px solid var(--b)}
+.sd{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+.so{background:var(--p);box-shadow:0 0 0 4px rgba(74,124,89,.2)}.sc{background:var(--l)}
+.pills{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto}
+.pill{padding:6px 13px;border-radius:20px;border:1px solid var(--b);background:transparent;color:var(--m);font-size:13px;cursor:pointer;white-space:nowrap;font-family:inherit}
+.pill.on{border-color:var(--p);background:var(--pp);color:var(--p);font-weight:700}
+.av{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--p),var(--pd));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;flex-shrink:0}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700}
+.bp{background:var(--pp);color:var(--p)}.bu{background:#ffd4d4;color:var(--r)}.bi{background:var(--ap);color:var(--a)}
+.empty{text-align:center;padding:36px;color:var(--m);font-size:14px}
+.si{width:100%;background:var(--bg);border:1px solid var(--b);border-radius:10px;color:#0e0e0e;padding:10px 13px;font-size:14px;outline:none;margin-bottom:12px;font-family:inherit}
+.sbar{height:4px;background:#f0ede8;border-radius:2px;overflow:hidden;margin-top:5px}
+.sfill{height:100%;border-radius:2px}
+.mdbtn{margin-top:9px;background:var(--pp);border:1px solid rgba(74,124,89,.3);border-radius:8px;color:var(--p);padding:8px;font-size:13px;font-weight:600;width:100%;cursor:pointer;font-family:inherit}
+.rbtn{background:rgba(255,255,255,.09);border:none;color:rgba(255,255,255,.6);border-radius:7px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+.logo-sm{width:32px;height:32px;border-radius:9px;background:var(--p);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff;font-family:Georgia,serif}
+</style>
+</head>
+<body>
+<div id="ls">
+  <div class="ll">B</div>
+  <div class="lt">BrewBase</div>
+  <div class="ls2">Owner Dashboard</div>
+  <input class="lf" id="em" type="email" placeholder="Email" autocomplete="email"/>
+  <input class="lf" id="pw" type="password" placeholder="Password" autocomplete="current-password"/>
+  <div class="le" id="err"></div>
+  <button class="lb" id="lbtn" onclick="login()">Sign In</button>
+</div>
+<div id="root" style="display:none">
+  <div class="hdr">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div class="logo-sm">B</div>
+      <div>
+        <div id="bname" style="font-size:14px;font-weight:700;color:#fff">BrewBase</div>
+        <div style="font-size:10px;color:rgba(255,255,255,.45)">Owner Dashboard</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="rbtn" onclick="loadTab()">Refresh</button>
+      <button class="rbtn" onclick="logout()">Log out</button>
+    </div>
+  </div>
+  <div class="cnt" id="cnt"></div>
+  <div class="bnav">
+    <button class="nb on" id="n0" onclick="go(0)"><span class="ic">📊</span>Dashboard</button>
+    <button class="nb" id="n1" onclick="go(1)"><span class="ic">🧾</span>Orders</button>
+    <button class="nb" id="n2" onclick="go(2)"><span class="ic">📦</span>Stock</button>
+    <button class="nb" id="n3" onclick="go(3)"><span class="ic">📝</span>Notes</button>
+    <button class="nb" id="n4" onclick="go(4)"><span class="ic">🕐</span>Shifts</button>
+  </div>
+</div>
+<script>
+const U="https://gqjndbfyigitojpztrbz.supabase.co"
+const K="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxamukYmZ5aWdpdG9qcHp0cmJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTk4Mjg1MzcsImV4cCI6MjAzNTQwNDUzN30.pKgvNBMBmrAL6iFBlw2rGMFUXOiJKPRBJJfxzOHqw6I"
+let tok="",biz="",tab=0,oDate=td()
+function td(){return new Date().toISOString().slice(0,10)}
+const fmt=n=>"R"+parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")
+function set(h){document.getElementById("cnt").innerHTML=h}
+async function q(p,o={}){
+  const h={"apikey":K,"Content-Type":"application/json",...o.headers}
+  if(tok)h.Authorization="Bearer "+tok
+  const r=await fetch(U+p,{...o,headers:h})
+  if(!r.ok)throw new Error(await r.text())
+  return r.json()
+}
+async function login(){
+  const em=document.getElementById("em").value.trim(),pw=document.getElementById("pw").value
+  document.getElementById("err").textContent=""
+  if(!em||!pw){document.getElementById("err").textContent="Enter email and password";return}
+  const b=document.getElementById("lbtn");b.disabled=true;b.textContent="Signing in..."
+  try{
+    const d=await q("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email:em,password:pw})})
+    tok=d.access_token;localStorage.setItem("bbt",tok)
+    await loadBiz()
+    document.getElementById("ls").style.display="none"
+    document.getElementById("root").style.display="flex"
+    go(0)
+  }catch(e){document.getElementById("err").textContent="Incorrect email or password";b.disabled=false;b.textContent="Sign In"}
+}
+async function loadBiz(){
+  const d=await q("/rest/v1/bb_businesses?select=*&limit=1")
+  if(d[0]){biz=d[0].id;document.getElementById("bname").textContent=d[0].name}
+}
+function logout(){tok="";biz="";localStorage.removeItem("bbt");document.getElementById("root").style.display="none";document.getElementById("ls").style.display="flex";document.getElementById("lbtn").disabled=false;document.getElementById("lbtn").textContent="Sign In"}
+function go(t){tab=t;for(let i=0;i<5;i++){const n=document.getElementById("n"+i);if(n)n.className="nb"+(i===t?" on":"")};loadTab()}
+function loadTab(){if(tab===0)dash();else if(tab===1)orders();else if(tab===2)inv();else if(tab===3)notes();else if(tab===4)shifts()}
+setInterval(()=>{if(tok&&tab===0)dash()},60000)
+async function dash(){
+  set("<div class='empty'>Loading...</div>")
+  try{
+    const[ords,shfts,invs,stf,nts]=await Promise.all([
+      q("/rest/v1/bb_orders?select=*&business_id=eq."+biz+"&date=eq."+td()+"&order=time.desc"),
+      q("/rest/v1/bb_shifts?select=*&business_id=eq."+biz+"&date=eq."+td()),
+      q("/rest/v1/bb_inventory?select=*&business_id=eq."+biz),
+      q("/rest/v1/bb_staff?select=*&business_id=eq."+biz),
+      q("/rest/v1/bb_staff_notes?select=*&business_id=eq."+biz+"&status=eq.pending&order=created_at.desc&limit=5")
+    ])
+    const rev=ords.reduce((s,o)=>s+parseFloat(o.total||0),0)
+    const cash=ords.filter(o=>o.method==="cash").reduce((s,o)=>s+parseFloat(o.total||0),0)
+    const card=ords.filter(o=>o.method==="card").reduce((s,o)=>s+parseFloat(o.total||0),0)
+    const eft=ords.filter(o=>o.method==="eft").reduce((s,o)=>s+parseFloat(o.total||0),0)
+    const tips=ords.reduce((s,o)=>s+parseFloat(o.tip||0),0)
+    const sh=shfts.find(s=>s.status==="open")
+    const low=invs.filter(i=>parseFloat(i.stock||0)<=parseFloat(i.reorder_level||0)&&parseFloat(i.reorder_level||0)>0)
+    const ss={};ords.forEach(o=>{if(o.staff_name)ss[o.staff_name]=(ss[o.staff_name]||0)+parseFloat(o.total||0)})
+    set(
+      '<div class="sb"><div class="sd '+(sh?"so":"sc")+'"></div><div style="flex:1"><div style="font-size:15px;font-weight:700">'+(sh?"Shift Open":"No Shift Open")+'</div><div style="font-size:12px;color:var(--m)">'+(sh?"Since "+new Date(sh.opened_at).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})+" · Float: "+fmt(sh.open_float):"No shift today")+'</div></div><span class="badge bp">● Live</span></div>'+
+      '<div class="kgrid"><div class="kpi"><div class="kl">💰 Revenue</div><div class="kv" style="color:var(--p)">'+fmt(rev)+'</div><div class="ks">'+ords.length+' orders</div></div><div class="kpi"><div class="kl">🧾 Orders</div><div class="kv">'+ords.length+'</div></div><div class="kpi"><div class="kl">💳 Card</div><div class="kv">'+fmt(card)+'</div></div><div class="kpi"><div class="kl">💵 Cash</div><div class="kv" style="color:var(--a)">'+fmt(cash)+'</div></div></div>'+
+      (tips>0?'<div class="kpi" style="margin-bottom:12px"><div class="kl">🙏 Tips</div><div class="kv" style="color:var(--a)">'+fmt(tips)+'</div></div>':"")+
+      (low.length>0?'<div class="card"><div class="ch">⚠ Low Stock <span class="badge bu">'+low.length+'</span></div>'+low.map(i=>'<div class="cr"><span style="font-size:13px;font-weight:600">'+i.name+'</span><span class="rv r">'+i.stock+' '+i.unit+'</span></div>').join("")+"</div>":"")+
+      '<div class="card"><div class="ch">Payment Breakdown</div><div class="cr"><span class="rl">Card</span><span class="rv g">'+fmt(card)+'</span></div><div class="cr"><span class="rl">Cash</span><span class="rv">'+fmt(cash)+'</span></div><div class="cr"><span class="rl">EFT</span><span class="rv">'+fmt(eft)+'</span></div>'+(tips>0?'<div class="cr"><span class="rl">Tips</span><span class="rv a">'+fmt(tips)+'</span></div>':"")+
+      '<div style="padding:12px 15px;background:#f8f7f5;display:flex;justify-content:space-between"><span style="font-size:14px;font-weight:700">Total</span><span style="font-size:17px;font-weight:800;color:var(--p)">'+fmt(rev)+'</span></div></div>'+
+      (Object.keys(ss).length>0?'<div class="card"><div class="ch">👥 Staff</div>'+Object.entries(ss).sort((a,b)=>b[1]-a[1]).map(([n,s])=>'<div class="cr"><div style="display:flex;align-items:center;gap:9px"><div class="av">'+n.slice(0,2).toUpperCase()+'</div><span style="font-size:14px;font-weight:600">'+n+'</span></div><span class="rv g">'+fmt(s)+'</span></div>').join("")+"</div>":"")+
+      '<div class="card"><div class="ch">Recent Orders</div>'+
+      (ords.slice(0,5).map(o=>{const it=typeof o.items==="string"?JSON.parse(o.items||"[]"):o.items||[];return'<div class="cr"><div style="flex:1;min-width:0"><div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+it.map(i=>i.qty+"x "+i.name).join(", ")+'</div><div style="font-size:11px;color:var(--m)">'+String(o.time||"").slice(0,5)+" · "+(o.staff_name||"—")+"</div></div><span class='rv g' style='margin-left:8px;flex-shrink:0'>"+fmt(o.total)+"</span></div>"}).join("")||"<div class='empty'>No orders yet</div>")+
+      "</div>"+
+      (nts.length>0?'<div class="card"><div class="ch">📝 Notes <span class="badge bu">'+nts.length+'</span></div>'+nts.map(n=>'<div style="padding:11px 15px;border-bottom:1px solid var(--b)"><div style="font-size:11px;color:var(--m);margin-bottom:3px">'+n.staff_name+" · "+n.date+(n.priority==="urgent"?' <span class="badge bu">🚨</span>':"")+'</div><div style="font-size:13px">'+n.text+'</div></div>').join("")+"</div>":"")+
+      '<div style="text-align:center;font-size:11px;color:var(--l);padding:6px">Updated '+new Date().toLocaleTimeString("en-ZA")+"</div>"
+    )
+  }catch(e){set("<div class='empty'>Error: "+e.message+"</div>")}
+}
+async function orders(){
+  set('<input class="si" type="date" value="'+oDate+'" onchange="oDate=this.value;orders()"/><div id="ol"><div class="empty">Loading...</div></div>')
+  const ords=await q("/rest/v1/bb_orders?select=*&business_id=eq."+biz+"&date=eq."+oDate+"&order=time.desc")
+  const tot=ords.reduce((s,o)=>s+parseFloat(o.total||0),0)
+  const el=document.getElementById("ol");if(!el)return
+  el.innerHTML=ords.length===0?"<div class='empty'>No orders on this day</div>":ords.map(o=>{const it=typeof o.items==="string"?JSON.parse(o.items||"[]"):o.items||[];return'<div class="card" style="margin-bottom:9px"><div style="padding:12px 15px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><div style="display:flex;align-items:center;gap:7px"><span style="font-size:12px;color:var(--m)">'+String(o.time||"").slice(0,5)+'</span><span class="badge" style="background:'+(o.method==="card"?"#e8f0f8":o.method==="cash"?"var(--ap)":"var(--pp)")+'">'+((o.method||"card").toUpperCase())+"</span>"+(o.status==="refunded"?'<span class="badge bu">REFUND</span>':"")+'</div><span style="font-size:15px;font-weight:800;color:var(--p)">'+fmt(o.total)+'</span></div><div style="font-size:13px">'+it.map(i=>i.qty+"x "+i.name).join(", ")+'</div><div style="font-size:11px;color:var(--m);">'+(o.staff_name||"—")+(o.table_num?" · Table "+o.table_num:"")+'</div></div></div>'}).join("")+'<div class="card"><div style="padding:13px 15px;display:flex;justify-content:space-between"><span style="font-size:14px;font-weight:700">Total</span><span style="font-size:17px;font-weight:800;color:var(--p)">'+fmt(tot)+"</span></div></div>"
+}
+let if_="all",is_=""
+async function inv(){
+  set('<input class="si" placeholder="Search..." oninput="is_=this.value;ri()"/><div class="pills"><button class="pill '+(if_==="all"?"on":"")+'" onclick="if_='all';ri()">All</button><button class="pill '+(if_==="low"?"on":"")+'" onclick="if_='low';ri()">Low</button><button class="pill '+(if_==="ok"?"on":"")+'" onclick="if_='ok';ri()">OK</button></div><div id="il"><div class="empty">Loading...</div></div>')
+  window._ii=await q("/rest/v1/bb_inventory?select=*&business_id=eq."+biz);ri()
+}
+function ri(){
+  const items=(window._ii||[]).filter(i=>!is_||i.name.toLowerCase().includes(is_.toLowerCase())).filter(i=>{const l=parseFloat(i.stock||0)<=parseFloat(i.reorder_level||0)&&parseFloat(i.reorder_level||0)>0;return if_==="low"?l:if_==="ok"?!l:true}).sort((a,b)=>a.name.localeCompare(b.name))
+  const el=document.getElementById("il");if(!el)return
+  el.innerHTML=items.length===0?"<div class='empty'>No items</div>":items.map(i=>{const l=parseFloat(i.stock||0)<=parseFloat(i.reorder_level||0)&&parseFloat(i.reorder_level||0)>0,pct=i.reorder_level>0?Math.min(100,(parseFloat(i.stock||0)/parseFloat(i.reorder_level))*100):100;return'<div class="card" style="margin-bottom:9px;'+(l?"border-color:var(--r)":"")+'"><div style="padding:13px 15px"><div style="display:flex;justify-content:space-between"><div><div style="font-size:15px;font-weight:700">'+i.name+"</div></div><div style='text-align:right'><div style='font-size:20px;font-weight:800;color:"+(l?"var(--r)":"var(--p)")+"'>"+i.stock+"</div><div style='font-size:11px;color:var(--m)'>"+i.unit+"</div></div></div><div class='sbar'><div class='sfill' style='width:"+pct+"%;background:"+(l?"var(--r)":"var(--p)")+"'></div></div><div style='display:flex;justify-content:space-between;margin-top:3px'><span style='font-size:10px;color:var(--m)'>Reorder at "+i.reorder_level+" "+i.unit+"</span>"+(l?"<span style='font-size:10px;font-weight:700;color:var(--r)'>ORDER</span>":"")+"</div></div></div>"}).join("")
+}
+let nf_="pending"
+async function notes(){
+  set('<div class="pills"><button class="pill '+(nf_==="pending"?"on":"")+'" onclick="nf_='pending';rn()">Pending</button><button class="pill '+(nf_==="done"?"on":"")+'" onclick="nf_='done';rn()">Done</button><button class="pill '+(nf_==="all"?"on":"")+'" onclick="nf_='all';rn()">All</button></div><div id="nl"><div class="empty">Loading...</div></div>')
+  window._nn=await q("/rest/v1/bb_staff_notes?select=*&business_id=eq."+biz+"&order=created_at.desc");rn()
+}
+function rn(){
+  const ns=(window._nn||[]).filter(n=>nf_==="all"||n.status===nf_).sort((a,b)=>{if(a.status==="done"&&b.status!=="done")return 1;if(b.status==="done"&&a.status!=="done")return -1;if(a.priority==="urgent"&&b.priority!=="urgent")return -1;return new Date(b.created_at)-new Date(a.created_at)})
+  const el=document.getElementById("nl");if(!el)return
+  el.innerHTML=ns.length===0?"<div class='empty'>No notes</div>":ns.map(n=>'<div style="background:#fff;border-radius:12px;border:1px solid '+(n.priority==="urgent"&&n.status!=="done"?"var(--r)":"var(--b)")+';padding:13px;margin-bottom:9px;opacity:'+(n.status==="done"?.6:1)+'"><div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;flex-wrap:wrap"><div class="av" style="width:27px;height:27px;font-size:10px">'+(n.staff_name||"?").slice(0,2).toUpperCase()+'</div><span style="font-size:13px;font-weight:700">'+(n.staff_name||"Staff")+'</span><span style="font-size:11px;color:var(--m)">'+n.date+"</span>"+(n.priority==="urgent"?'<span class="badge bu">URGENT</span>':"")+(n.priority==="important"?'<span class="badge bi">IMPORTANT</span>':"")+(n.status==="done"?'<span class="badge bp">Done</span>':'')+'</div><div style="font-size:14px;line-height:1.6">'+n.text+"</div>"+(n.status==="pending"?'<button class="mdbtn" onclick="md(''+n.id+'')">Mark Done</button>':"")+"</div>").join("")
+}
+async function md(id){await q("/rest/v1/bb_staff_notes?id=eq."+id,{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({status:"done",done_at:new Date().toISOString()})});window._nn=window._nn.map(n=>n.id===id?{...n,status:"done"}:n);rn()}
+async function shifts(){
+  set("<div class='empty'>Loading...</div>")
+  const[shfts,stf]=await Promise.all([q("/rest/v1/bb_shifts?select=*&business_id=eq."+biz+"&order=date.desc&limit=30"),q("/rest/v1/bb_staff?select=*&business_id=eq."+biz)])
+  set(shfts.length===0?"<div class='empty'>No shifts yet</div>":shfts.map(s=>{const op=s.status==="open",ob=stf.find(x=>x.id===s.opened_by),tot=parseFloat(s.cash_total||0)+parseFloat(s.card_total||0)+parseFloat(s.eft_total||0),cv=parseFloat(s.cash_variance||0);return'<div class="card" style="margin-bottom:11px;'+(op?"border-color:var(--p)":"")+'"><div style="padding:12px 15px;background:'+(op?"var(--pp)":"#f8f7f5")+';display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:15px;font-weight:700">'+s.date+'</div><div style="font-size:12px;color:var(--m)">'+(ob?.name||"—")+'</div></div><span class="badge '+(op?"bp":"")+'" style="'+(op?"":"background:#e4e0da;color:var(--m)")+'">'+(op?"OPEN":"Closed")+"</span></div><div style='padding:12px 15px'><div style='display:flex;gap:14px;flex-wrap:wrap'><div><div style='font-size:10px;color:var(--m)'>FLOAT</div><div style='font-size:14px;font-weight:700'>"+fmt(s.open_float||0)+"</div></div><div><div style='font-size:10px;color:var(--m)'>CASH</div><div style='font-size:14px;font-weight:700'>"+fmt(s.cash_total||0)+"</div></div><div><div style='font-size:10px;color:var(--m)'>CARD</div><div style='font-size:14px;font-weight:700'>"+fmt(s.card_total||0)+"</div></div><div><div style='font-size:10px;color:var(--m)'>TOTAL</div><div style='font-size:15px;font-weight:800;color:var(--p)'>"+fmt(tot)+"</div></div></div>"+(!op&&s.cash_counted?"<div style='font-size:12px;font-weight:600;color:"+(cv>=0?"var(--p)":"var(--r)")+"'>Variance: "+(cv>=0?"+":"")+fmt(cv)+"</div>":"")+"</div></div>"}).join(""))
+}
+window.onload=async()=>{
+  const t=localStorage.getItem("bbt")
+  if(t){tok=t;try{await loadBiz();document.getElementById("ls").style.display="none";document.getElementById("root").style.display="flex";go(0)}catch(e){localStorage.removeItem("bbt")}}
+}
+document.addEventListener("keydown",e=>{if(e.key==="Enter")login()})
+</script>
+</body>
+</html>
