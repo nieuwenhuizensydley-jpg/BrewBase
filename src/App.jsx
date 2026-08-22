@@ -956,7 +956,7 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pinPromptDone, setPinPromptDone] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false) // hidden by default, opens as overlay
 
   // Detect phone vs tablet using matchMedia (more reliable on Android)
   const phoneQuery   = window.matchMedia("(max-width: 767px)")
@@ -1000,28 +1000,35 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
           className="mobile-backdrop"/>
       )}
 
-      {/* ── SIDEBAR (hidden on phone portrait) ── */}
+      {/* ── SIDEBAR OVERLAY ── */}
+      {sidebarOpen&&(
+        <div onClick={()=>setSidebarOpen(false)}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200}}/>
+      )}
       {showSidebar&&<div style={{
-        width:sidebarCollapsed?56:220,flexShrink:0,background:C.sidebar,
+        position:"fixed",left:0,top:0,bottom:0,zIndex:201,
+        width:260,background:C.sidebar,
         display:"flex",flexDirection:"column",overflow:"hidden",
-        borderRight:`1px solid rgba(255,255,255,.06)`,transition:"width 0.2s ease"
+        transform:sidebarOpen?"translateX(0)":"translateX(-100%)",
+        transition:"transform 0.25s ease",
+        boxShadow:sidebarOpen?"4px 0 20px rgba(0,0,0,0.3)":"none"
       }}>
         {/* Header: store name + staff + collapse */}
         <div style={{background:C.primary,padding:"16px 14px 14px",display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
-          {!sidebarCollapsed&&(
+          {(
             <div>
               <div style={{fontSize:16,fontWeight:800,color:"#fff",marginBottom:1}}>{business?.name||"BrewBase"}</div>
               <div style={{fontSize:13,color:"rgba(255,255,255,.8)"}}>{staff?.name}</div>
               <div style={{fontSize:11,color:"rgba(255,255,255,.6)",textTransform:"capitalize"}}>{staff?.role}</div>
             </div>
           )}
-          {sidebarCollapsed&&(
+          {false&&(
             <div style={{width:34,height:34,borderRadius:"50%",background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff"}}>
               {staff?.initials||staff?.name?.slice(0,2).toUpperCase()||"?"}
             </div>
           )}
-          <button onClick={()=>setSidebarCollapsed(c=>!c)}
-            style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:6,color:"#fff",cursor:"pointer",padding:"6px 8px",fontSize:13,lineHeight:1,flexShrink:0,marginTop:sidebarCollapsed?0:2}}>
+          <button onClick={()=>setSidebarOpen(o=>!o)}
+            style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:6,color:"#fff",cursor:"pointer",padding:"6px 8px",fontSize:13,lineHeight:1,flexShrink:0,marginTop:2}}>
             {sidebarCollapsed?"→":"←"}
           </button>
         </div>
@@ -1033,14 +1040,14 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
             const isA = active===item.id
             const label = typeof item.label==="function"?item.label():item.label
             return(
-              <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false) }}
+              <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false); setSidebarOpen(false) }}
                 title={label}
-                style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:14,padding:sidebarCollapsed?"14px 0":"14px 16px",justifyContent:sidebarCollapsed?"center":"flex-start",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
+                style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",justifyContent:"flex-start",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
                   background:isA?"rgba(255,255,255,.12)":"transparent",
                   color:isA?"#fff":"rgba(255,255,255,.7)",fontFamily:"Inter,sans-serif",transition:"all 0.1s"}}>
                 <span style={{fontSize:20,flexShrink:0}}>{item.icon}</span>
-                {!sidebarCollapsed&&<span style={{fontSize:15,fontWeight:isA?700:400}}>{label}</span>}
-                {!sidebarCollapsed&&isA&&<div style={{width:3,height:"100%",background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
+                {<span style={{fontSize:15,fontWeight:isA?700:400}}>{label}</span>}
+                {isA&&<div style={{width:3,height:"100%",background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
               </button>
             )
           })}
@@ -1051,14 +1058,14 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
             const isA = active===item.id
             const label = typeof item.label==="function"?item.label():item.label
             return(
-              <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false) }}
+              <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false); setSidebarOpen(false) }}
                 title={label}
-                style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:14,padding:sidebarCollapsed?"13px 0":"13px 16px",justifyContent:sidebarCollapsed?"center":"flex-start",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
+                style={{display:"flex",alignItems:"center",gap:14,padding:"13px 16px",justifyContent:"flex-start",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
                   background:isA?"rgba(255,255,255,.12)":"transparent",
                   color:isA?"#fff":"rgba(255,255,255,.65)",fontFamily:"Inter,sans-serif",transition:"all 0.1s"}}>
                 <span style={{fontSize:18,flexShrink:0}}>{item.icon}</span>
-                {!sidebarCollapsed&&<span style={{fontSize:14,fontWeight:isA?700:400}}>{label}</span>}
-                {!sidebarCollapsed&&isA&&<div style={{width:3,background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
+                {<span style={{fontSize:14,fontWeight:isA?700:400}}>{label}</span>}
+                {isA&&<div style={{width:3,background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
               </button>
             )
           })}
@@ -1100,8 +1107,15 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
       {/* ── MAIN CONTENT ── */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         {/* Top bar */}
-        <div style={{padding:"0 24px",height:58,borderBottom:`1px solid ${C.border}`,background:C.surface,
-          display:"flex",alignItems:"center",gap:16,flexShrink:0,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
+        <div style={{padding:"0 16px",height:52,borderBottom:`1px solid ${C.border}`,background:C.primary,
+          display:"flex",alignItems:"center",gap:16,flexShrink:0}}>
+          {/* Hamburger menu */}
+          <button onClick={()=>setSidebarOpen(true)}
+            style={{background:"none",border:"none",color:"#fff",cursor:"pointer",padding:"4px",flexShrink:0,display:"flex",flexDirection:"column",gap:4,justifyContent:"center"}}>
+            <span style={{display:"block",width:22,height:2,background:"#fff",borderRadius:1}}/>
+            <span style={{display:"block",width:22,height:2,background:"#fff",borderRadius:1}}/>
+            <span style={{display:"block",width:22,height:2,background:"#fff",borderRadius:1}}/>
+          </button>
           <div style={{flex:1}}>
             <div style={{fontSize:18,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>
               {typeof currentMod?.label==="function"?currentMod.label():currentMod?.label}
