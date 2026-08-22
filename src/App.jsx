@@ -884,6 +884,7 @@ const NAV_ITEMS = [
   {id:"shifts",         icon:"🕐", label:()=>t("shifts"),          roles:["owner","manager","barista","cashier"]},
   {id:"stocktake",      icon:"📋", label:"Stock Take",              roles:["owner","manager","barista","cashier"]},
   {id:"orders",         icon:"📋", label:()=>t("orders"),          roles:["owner","manager"]},
+  {id:"receipts",       icon:"🧾", label:"Receipts",                roles:["owner","manager","barista","cashier"]},
   {id:"menu",           icon:"☕", label:()=>t("menu"),            roles:["owner","manager"]},
   {id:"inventory",      icon:"📦", label:()=>t("inventory"),       roles:["owner","manager"]},
   {id:"staff",          icon:"👥", label:()=>t("staff"),           roles:["owner","manager"]},
@@ -930,6 +931,7 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
     dashboard: <DashboardModule/>,
     pos:       <ShiftGatedPOS/>,
     orders:    <OrdersModule/>,
+    receipts:  <ReceiptsModule/>,
     shifts:    <ShiftsModule/>,
     menu:      <MenuModule/>,
     inventory: <InventoryModule/>,
@@ -1004,60 +1006,58 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
         display:"flex",flexDirection:"column",overflow:"hidden",
         borderRight:`1px solid rgba(255,255,255,.06)`,transition:"width 0.2s ease"
       }}>
-        {/* Logo + collapse */}
-        <div style={{padding:"16px 12px",borderBottom:"1px solid rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          {!sidebarCollapsed&&<BrewBaseLogo size={28} light={true}/>}
-          {sidebarCollapsed&&<img src={LOGO_SM} alt="B" style={{width:32,height:32,objectFit:"contain",flexShrink:0}}/>}
-          <button onClick={()=>setSidebarCollapsed(c=>!c)} style={{background:"rgba(255,255,255,.08)",border:"none",borderRadius:6,color:"rgba(255,255,255,.5)",cursor:"pointer",padding:"6px 8px",fontSize:14,lineHeight:1,flexShrink:0}}>
-            {sidebarCollapsed?"→":"←"}
-          </button>
+        {/* Header: store name + staff */}
+        <div style={{background:C.primary,padding:"16px 14px 14px"}}>
+          <div style={{fontSize:16,fontWeight:800,color:"#fff",marginBottom:1}}>{business?.name||"BrewBase"}</div>
+          <div style={{fontSize:13,color:"rgba(255,255,255,.8)"}}>{staff?.name}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.6)",textTransform:"capitalize"}}>{staff?.role}</div>
         </div>
 
-        {/* Staff avatar */}
-        <div style={{padding:"10px 8px",borderBottom:"1px solid rgba(255,255,255,.08)",display:"flex",alignItems:"center",gap:10,justifyContent:sidebarCollapsed?"center":"flex-start"}}>
-          <div style={{width:34,height:34,borderRadius:"50%",background:C.primary,
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff",flexShrink:0}}>
-            {staff?.initials||staff?.name?.slice(0,2).toUpperCase()||"?"}
-          </div>
-          {!sidebarCollapsed&&<div>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",lineHeight:1}}>{staff?.name}</div>
-            <div style={{fontSize:11,color:"rgba(255,255,255,.4)",textTransform:"capitalize",marginTop:2}}>{staff?.role}</div>
-          </div>}
-        </div>
-
-        {/* Nav items */}
-        <nav style={{flex:1,padding:"10px 8px",overflowY:"auto",display:"flex",flexDirection:"column",gap:1}}>
-          {allowedNav.map(item=>{
+        {/* Nav items - Loyverse style */}
+        <nav style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column"}}>
+          {/* Sales section */}
+          {allowedNav.filter(i=>["pos","orders","receipts"].includes(i.id)).map(item=>{
             const isA = active===item.id
-            return (
-              <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false); }}
-                title={typeof item.label==="function"?item.label():item.label}
-                style={{display:"flex",alignItems:"center",gap:10,padding:sidebarCollapsed?"11px 0":"11px 10px",borderRadius:8,
-                  border:"none",cursor:"pointer",textAlign:"left",width:"100%",justifyContent:sidebarCollapsed?"center":"flex-start",
-                  background:isA?"rgba(74,124,89,.25)":"transparent",
-                  color:isA?"#fff":"rgba(255,255,255,.45)",
-                  transition:"all 0.15s"}}>
-                <span style={{fontSize:17,opacity:isA?1:0.7,flexShrink:0}}>{item.icon}</span>
-                {!sidebarCollapsed&&<span style={{fontSize:13,fontWeight:isA?600:400,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{typeof item.label==="function"?item.label():item.label}</span>}
-                {!sidebarCollapsed&&isA&&<div style={{width:3,height:20,borderRadius:2,background:C.primary,marginLeft:"auto",flexShrink:0}}/>}
+            const label = typeof item.label==="function"?item.label():item.label
+            return(
+              <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false) }}
+                style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
+                  background:isA?"rgba(255,255,255,.12)":"transparent",
+                  color:isA?"#fff":"rgba(255,255,255,.7)",fontFamily:"Inter,sans-serif",transition:"all 0.1s"}}>
+                <span style={{fontSize:20,flexShrink:0}}>{item.icon}</span>
+                <span style={{fontSize:15,fontWeight:isA?700:400}}>{label}</span>
+                {isA&&<div style={{width:3,height:"100%",background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
+              </button>
+            )
+          })}
+          {/* Divider */}
+          <div style={{height:1,background:"rgba(255,255,255,.1)",margin:"4px 0"}}/>
+          {/* Management section */}
+          {allowedNav.filter(i=>!["pos","orders","receipts"].includes(i.id)).map(item=>{
+            const isA = active===item.id
+            const label = typeof item.label==="function"?item.label():item.label
+            return(
+              <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false) }}
+                style={{display:"flex",alignItems:"center",gap:14,padding:"13px 16px",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
+                  background:isA?"rgba(255,255,255,.12)":"transparent",
+                  color:isA?"#fff":"rgba(255,255,255,.65)",fontFamily:"Inter,sans-serif",transition:"all 0.1s"}}>
+                <span style={{fontSize:18,flexShrink:0}}>{item.icon}</span>
+                <span style={{fontSize:14,fontWeight:isA?700:400}}>{label}</span>
+                {isA&&<div style={{width:3,background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
               </button>
             )
           })}
         </nav>
 
-        {/* Bottom: business info + logout */}
-        <div style={{padding:"12px 8px",borderTop:"1px solid rgba(255,255,255,.08)",display:"flex",flexDirection:"column",gap:6}}>
-          {!sidebarCollapsed&&(
-            <div style={{padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,.05)"}}>
-              <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,.7)",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{business?.name}</div>
-              <span style={{fontSize:10,background:C.primary,color:"#fff",padding:"2px 7px",borderRadius:10,fontWeight:600,textTransform:"uppercase"}}>{business?.plan_id||"FREE"}</span>
-            </div>
-          )}
-          <button onClick={onLogout} title="Log Out"
-            style={{display:"flex",alignItems:"center",justifyContent:sidebarCollapsed?"center":"flex-start",gap:8,padding:"9px 10px",borderRadius:8,
-            border:"none",cursor:"pointer",background:"rgba(214,69,69,.15)",color:"rgba(214,69,69,.8)",width:"100%",fontSize:13,fontWeight:500}}>
-            <span>↪</span>{!sidebarCollapsed&&" Log Out"}
-          </button>
+        {/* Bottom: plan + logout */}
+        <div style={{borderTop:"1px solid rgba(255,255,255,.1)",padding:"10px 12px",display:"flex",flexDirection:"column",gap:6}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:11,background:C.primary,color:"#fff",padding:"3px 10px",borderRadius:10,fontWeight:700,textTransform:"uppercase"}}>{business?.plan_id||"FREE"}</span>
+            <button onClick={onLogout}
+              style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,border:"none",cursor:"pointer",background:"rgba(214,69,69,.2)",color:"rgba(255,100,100,.9)",fontSize:13,fontWeight:600,fontFamily:"Inter,sans-serif"}}>
+              ↪ Log Out
+            </button>
+          </div>
         </div>
       </div>}
 
@@ -1658,7 +1658,7 @@ function POSModule() {
 
   const saveTab = async () => {
     if (!cart.length) return
-    const label = saveTabName.trim() || `Tab ${openTabs.length + 1}`
+    const label = saveTabName.trim() || (activeTabId ? openTabs.find(t=>t.id===activeTabId)?.label : "") || `Tab ${openTabs.length + 1}`
     if (activeTabId) {
       await supabase.from("bb_open_tabs").update({ label, items: cart, order_type: orderType, table_num: tableNum || null }).eq("id", activeTabId)
     } else {
@@ -1678,6 +1678,7 @@ function POSModule() {
     setOrderType(tab.order_type || "sit-in")
     setTableNum(tab.table_num || "")
     setActiveTabId(tab.id)
+    setSaveTabName(tab.label || "") // Pre-fill name so resave keeps it
     setTabsOpen(false)
   }
 
@@ -1773,7 +1774,7 @@ function POSModule() {
       {/* ── RIGHT: Ticket ── */}
       <div style={{ width: checkoutOpen ? "100%" : 320, display: "flex", flexDirection: "column", background: C.surface, flexShrink: 0, overflow: "hidden", minWidth: 0 }}>
         {/* Ticket header */}
-        <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, background: "#fff", flexShrink: 0 }}>
+        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.border}`, background: "#fff", flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             {checkoutOpen
               ? <button onClick={() => setCheckoutOpen(false)} style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 14, fontWeight: 600, padding: 0, display: "flex", alignItems: "center", gap: 4 }}>← Back</button>
@@ -1817,23 +1818,25 @@ function POSModule() {
             <Empty icon="🛒" title="Empty ticket" message="Tap items on the left to add them"/>
           )}
           {!checkoutOpen && cart.map(item => (
-            <div key={item.id} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: C.black, flex: 1 }}>{item.name}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.primary, marginLeft: 8, whiteSpace: "nowrap" }}>{fmt(item.price * item.qty)}</div>
-              </div>
-              {item.selections?.map(s => (
-                <div key={s.groupId} style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
-                  {s.groupName}: {s.options.map(o => o.label + (o.price_delta > 0 ? ` +${fmt(o.price_delta)}` : "")).join(", ")}
+            <div key={item.id} style={{ borderBottom: `1px solid ${C.border}`, padding: "10px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: C.black }}>{item.name}</div>
+                  {item.selections?.map(s => (
+                    <div key={s.groupId} style={{ fontSize: 11, color: C.muted }}>
+                      {s.options.map(o => o.label).join(", ")}
+                    </div>
+                  ))}
+                  {item.notes && <div style={{ fontSize: 11, color: C.amber }}>📝 {item.notes}</div>}
                 </div>
-              ))}
-              {item.notes && <div style={{ fontSize: 12, color: C.amber, marginTop: 2 }}>📝 {item.notes}</div>}
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.black, flexShrink: 0 }}>{fmt(item.price * item.qty)}</div>
+              </div>
               {!checkoutOpen && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
-                  <button onClick={() => updQty(item.id, -1)} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${C.border}`, background: C.faint, color: C.muted, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>−</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <button onClick={() => updQty(item.id, -1)} style={{ width: 26, height: 26, borderRadius: 4, border: `1px solid ${C.border}`, background: C.faint, color: C.black, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>−</button>
                   <span style={{ fontSize: 14, fontWeight: 700, color: C.black, minWidth: 20, textAlign: "center" }}>{item.qty}</span>
-                  <button onClick={() => updQty(item.id, 1)} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${C.border}`, background: C.faint, color: C.muted, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>+</button>
-                  <button onClick={() => removeItem(item.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18 }}>×</button>
+                  <button onClick={() => updQty(item.id, 1)} style={{ width: 26, height: 26, borderRadius: 4, border: `1px solid ${C.border}`, background: C.faint, color: C.black, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>+</button>
+                  <button onClick={() => removeItem(item.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
                 </div>
               )}
             </div>
@@ -2248,6 +2251,151 @@ function POSModule() {
 // ══════════════════════════════════════════════════════════════════════════════
 // ORDERS HISTORY
 // ══════════════════════════════════════════════════════════════════════════════
+// ── RECEIPTS MODULE ───────────────────────────────────────────────────────────
+function ReceiptsModule() {
+  const business  = useBusiness()
+  const staff     = useStaff()
+  const {data:shifts} = useData("bb_shifts")
+  const {data:orders} = useData("bb_orders")
+  const [search, setSearch]   = useState("")
+  const [refundModal, setRefundModal] = useState(null)
+  const [refundReason, setRefundReason] = useState("")
+  const [refunding, setRefunding] = useState(false)
+  const [printing, setPrinting] = useState(null)
+
+  // Get today's shift orders
+  const today = new Date().toISOString().slice(0,10)
+  const todayShift = shifts.find(s=>s.date===today)
+  const shiftOrders = orders
+    .filter(o=>o.date===today)
+    .sort((a,b)=>b.time?.localeCompare(a.time||""))
+
+  const filtered = shiftOrders.filter(o=>{
+    if(!search) return true
+    const items = typeof o.items==="string"?JSON.parse(o.items||"[]"):o.items||[]
+    const itemStr = items.map(i=>i.name).join(" ").toLowerCase()
+    return itemStr.includes(search.toLowerCase()) ||
+           fmt(o.total).includes(search) ||
+           String(o.time||"").includes(search)
+  })
+
+  const reprintReceipt = async (order) => {
+    if(!BB_PRINTER.connected){ alert("Connect printer first"); return }
+    setPrinting(order.id)
+    try {
+      const bytes = buildReceiptBytes(order, order.items, getReceiptSettings())
+      await BB_PRINTER.print(bytes)
+    } catch(e){ alert("Print failed: "+e.message) }
+    setPrinting(null)
+  }
+
+  const processRefund = async () => {
+    if(!refundModal) return
+    setRefunding(true)
+    // Mark order as refunded
+    await supabase.from("bb_orders").update({
+      status:"refunded",
+      refund_reason:refundReason,
+      refunded_by:staff?.id,
+      refunded_at:new Date().toISOString()
+    }).eq("id",refundModal.id)
+    // Print refund receipt if printer connected
+    if(BB_PRINTER.connected) {
+      try {
+        const s = getReceiptSettings()
+        const W = getPaperChars(s.paperWidth||"58")
+        const two = (l,r)=>{ const g=W-String(l).length-String(r).length; return String(l)+" ".repeat(Math.max(1,g))+String(r) }
+        const sep = (c="-")=>c.repeat(W)
+        const bytes = []
+        const add = arr=>bytes.push(...arr)
+        const text = str=>add(strToBytes(str))
+        add(ESC_INIT); add(ESC_ALIGN_CENTER); add(ESC_BOLD_ON)
+        text((s.storeName||business?.name||"BrewBase")+"\n")
+        add(ESC_BOLD_OFF)
+        text("*** REFUND RECEIPT ***\n")
+        text(new Date().toLocaleDateString("en-ZA")+"\n")
+        add(ESC_ALIGN_LEFT)
+        text(sep("=")+"\n")
+        text(two("Original order:",String(refundModal.time||"").slice(0,5))+"\n")
+        text(two("Refund amount:",fmt(refundModal.total))+"\n")
+        if(refundReason) text("Reason: "+refundReason+"\n")
+        text(sep("=")+"\n")
+        add(ESC_ALIGN_CENTER)
+        text("Refunded by: "+(staff?.name||"—")+"\n\n")
+        add(FEED_LINES(3)); add(GS_CUT)
+        await BB_PRINTER.print(bytes)
+      } catch(e){ console.warn("Refund print failed:",e) }
+    }
+    setRefunding(false); setRefundModal(null); setRefundReason("")
+  }
+
+  return(
+    <div style={{padding:24,display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Receipts</div>
+          <div style={{fontSize:13,color:C.muted}}>Today · {shiftOrders.length} orders</div>
+        </div>
+      </div>
+
+      <input value={search} onChange={e=>setSearch(e.target.value)}
+        placeholder="Search by item, amount or time…"
+        style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"10px 14px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none",width:"100%",boxSizing:"border-box"}}/>
+
+      {filtered.length===0
+        ? <Empty icon="🧾" title="No receipts yet" message="Orders from today's shift appear here"/>
+        : <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+            {filtered.map((order,idx)=>{
+              const items = typeof order.items==="string"?JSON.parse(order.items||"[]"):order.items||[]
+              const isRefunded = order.status==="refunded"
+              return(
+                <div key={order.id} style={{padding:"14px 16px",borderBottom:idx<filtered.length-1?`1px solid ${C.border}`:"none",opacity:isRefunded?0.6:1}}>
+                  <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                        <span style={{fontSize:13,color:C.muted}}>{String(order.time||"").slice(0,5)}</span>
+                        <span style={{fontSize:14,fontWeight:700,color:C.black}}>{fmt(order.total)}</span>
+                        <Chip color={order.method==="cash"?"amber":order.method==="card"?"blue":"primary"} size="sm">{(order.method||"card").toUpperCase()}</Chip>
+                        {isRefunded&&<Chip color="red" size="sm">REFUNDED</Chip>}
+                        {order.staff_name&&<span style={{fontSize:11,color:C.muted}}>{order.staff_name}</span>}
+                      </div>
+                      <div style={{fontSize:13,color:C.muted}}>
+                        {items.map(i=>`${i.qty}× ${i.name}`).join(" · ")}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6,flexShrink:0}}>
+                      <Btn size="sm" variant="secondary" disabled={printing===order.id} onClick={()=>reprintReceipt(order)}>
+                        {printing===order.id?"…":"🖨"}
+                      </Btn>
+                      {!isRefunded&&<Btn size="sm" variant="danger" onClick={()=>setRefundModal(order)}>↩ Refund</Btn>}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+      }
+
+      {refundModal&&(
+        <Modal title="Process Refund" subtitle={`${fmt(refundModal.total)} · ${String(refundModal.time||"").slice(0,5)}`} onClose={()=>setRefundModal(null)} width={420}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{background:"#fff5f5",border:`1px solid ${C.red}30`,borderRadius:10,padding:14,fontSize:13,color:C.black}}>
+              <strong>Refunding:</strong><br/>
+              {(typeof refundModal.items==="string"?JSON.parse(refundModal.items||"[]"):refundModal.items||[]).map(i=>`${i.qty}× ${i.name}`).join(", ")}
+              <br/><strong>Total: {fmt(refundModal.total)}</strong>
+            </div>
+            <Input label="Reason for refund (optional)" value={refundReason} onChange={e=>setRefundReason(e.target.value)} placeholder="e.g. Wrong order, customer complaint"/>
+            <div style={{display:"flex",gap:10}}>
+              <Btn variant="danger" onClick={processRefund} disabled={refunding} style={{flex:1}} size="lg">{refunding?"Processing…":"↩ Process Refund"}</Btn>
+              <Btn variant="secondary" onClick={()=>setRefundModal(null)} style={{flex:1}} size="lg">Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
 function OrdersModule() {
   const business = useBusiness()
   const {data:orders,refresh} = useData("bb_orders")
