@@ -4652,9 +4652,10 @@ function buildReceiptBytes(order, items, settings={}) {
   add(ESC_INIT)
   add(LINE_SPACING(30))
 
-  // ── HEADER — use software centering for reliability ──
-  // Store name
+  // ── HEADER ──
   add(ESC_ALIGN_CENTER)
+
+  // Store name - bold, centered
   add(ESC_BOLD_ON)
   if(S.nameStyle === "double") {
     add(ESC_DBLWIDTH_ON)
@@ -4663,101 +4664,115 @@ function buildReceiptBytes(order, items, settings={}) {
   } else if(S.nameStyle === "large") {
     add(ESC_DBLHEIGHT_ON)
     text(S.storeName + "\n")
-    add(ESC_DBLWIDTH_OFF)
+    add(ESC_FONT_NORMAL)
   } else {
     text(S.storeName + "\n")
   }
   add(ESC_BOLD_OFF)
-  if(S.tagline)   { text(S.tagline + "\n") }
-  if(S.address)   { text(S.address + "\n") }
-  if(S.phone)     { text("Tel: " + S.phone + "\n") }
-  if(S.vatNumber) { text("VAT No: " + S.vatNumber + "\n") }
-  add(ESC_ALIGN_LEFT)
-  text("\n")
-  sep("=")
 
-  // ── ORDER INFO ──
+  // Tagline, address, phone - all centered
+  if(S.tagline)   text(S.tagline + "\n")
+  if(S.address)   text(S.address + "\n")
+  if(S.phone)     text("Tel: " + S.phone + "\n")
+  if(S.vatNumber) text("VAT No: " + S.vatNumber + "\n")
+
+  // BILL header
+  text("\n")
+  add(ESC_BOLD_ON)
+  text("BILL\n")
+  add(ESC_BOLD_OFF)
+  text("\n")
+
+  // ── ORDER INFO - left aligned ──
   add(ESC_ALIGN_LEFT)
-  if(S.showOrderNum) text(`Order #: ${String(order.id||"").slice(-8).toUpperCase()}\n`)
-  if(S.showDate)     text(`Date: ${order.date}  ${String(order.time||"").slice(0,5)}\n`)
-  if(S.showStaff)    text(`Staff: ${order.staff_name||"—"}\n`)
+  if(order.tab_name || order.customer_name) text(`Order: ${order.tab_name||order.customer_name}\n`)
+  else if(S.showOrderNum) text(`Order: #${String(order.id||"").slice(-6).toUpperCase()}\n`)
+  if(S.showStaff) text(`Employee: ${order.staff_name||"—"}\n`)
   if(S.showTable && order.order_type) {
     const typeStr = (order.order_type||"Sit-in").charAt(0).toUpperCase()+(order.order_type||"").slice(1)
-    text(`Type: ${typeStr}${order.table_num ? " — Table " + order.table_num : ""}\n`)
+    text(`${typeStr}${order.table_num ? " — Table " + order.table_num : ""}\n`)
   }
-  sep("-")
+  sep(".")
 
-  // ── ITEMS ──
+  // ── ITEMS - name on top, qty x price below ──
   add(ESC_ALIGN_LEFT)
   const parsedItems = typeof items === "string" ? JSON.parse(items||"[]") : items||[]
   for(const item of parsedItems) {
     const qty = item.qty||1
     const lineTotal = Number((item.price||0)*qty).toFixed(2)
-    add(ESC_BOLD_ON)
-    text(`${String(item.name).slice(0, W-2)}\n`)
-    add(ESC_BOLD_OFF)
-    two(`  ${qty} x R${Number(item.price||0).toFixed(2)}`, `R${lineTotal}`)
+    const itemName = String(item.name).slice(0, W-10)
+    // Item name left, total right on same line
+    two(itemName, `R${lineTotal}`)
+    // Qty x price below - indented
+    text(`  ${qty} x R${Number(item.price||0).toFixed(2)}\n`)
     if(item.selections) {
       for(const sel of item.selections) {
-        const labels = (sel.options||[]).map(o=>o.label+(parseFloat(o.price_delta||0)>0?` +R${Number(o.price_delta).toFixed(2)}`:"")||(o.label)).join(", ")
-        if(labels) text(`  ${sel.groupName}: ${labels}\n`)
+        const labels = (sel.options||[]).map(o=>o.label).join(", ")
+        if(labels) text(`  ${labels}\n`)
       }
     }
     if(item.notes) text(`  * ${item.notes}\n`)
-    text("\n")
+    sep(".")
   }
-  sep("-")
 
   // ── TOTALS ──
   add(ESC_ALIGN_LEFT)
-  const subtotal  = parseFloat(order.subtotal||0)
-  const discAmt   = parseFloat(order.discount_amt||0)
-  const vatAmt    = parseFloat(order.vat_amt||0)
-  const tip       = parseFloat(order.tip||0)
-  const total     = parseFloat(order.total||0)
+  const subtotal = parseFloat(order.subtotal||order.total||0)
+  const discAmt  = parseFloat(order.discount_amt||0)
+  const vatAmt   = parseFloat(order.vat_amt||0)
+  const tip      = parseFloat(order.tip||0)
+  const total    = parseFloat(order.total||0)
 
   if(discAmt > 0) {
     two("Subtotal", `R${subtotal.toFixed(2)}`)
-    const discLabel = order.discount_type==="comp" ? "Complimentary" : order.discount_type==="fixed" ? "Discount" : `Discount ${order.discount_pct||0}%`
+    const discLabel = order.discount_type==="comp"?"Complimentary":order.discount_type==="fixed"?"Discount":`Discount ${order.discount_pct||0}%`
     two(discLabel, `-R${discAmt.toFixed(2)}`)
   }
   if(vatAmt > 0) two(`VAT (${S.vatRate||15}%)`, `R${vatAmt.toFixed(2)}`)
   if(tip > 0)    two("Tip", `R${tip.toFixed(2)}`)
 
-  sep("=")
+  // Amount due - bold, big
   add(ESC_BOLD_ON)
   add(ESC_DBLHEIGHT_ON)
-  two("TOTAL", `R${total.toFixed(2)}`)
-  add(ESC_DBLWIDTH_OFF)
-  add(ESC_DBLHEIGHT_ON)
+  two("Amount due", `R${total.toFixed(2)}`)
+  add(ESC_FONT_NORMAL)
   add(ESC_BOLD_OFF)
-  sep("-")
+  sep(".")
 
   // Payment method
-  const methodLabel = {card:"CARD",cash:"CASH",eft:"EFT",split:"SPLIT"}[order.method||"card"] || "CARD"
-  two(`Paid: ${methodLabel}`, `R${total.toFixed(2)}`)
-  if(order.method==="cash" && parseFloat(order.change_given||0)>0) {
-    two("Cash Given", `R${parseFloat(order.cash_given||total).toFixed(2)}`)
-    two("Change Due", `R${parseFloat(order.change_given).toFixed(2)}`)
+  if(order.method) {
+    const methodLabel = {card:"Card",cash:"Cash",eft:"EFT",split:"Split"}[order.method]||"Card"
+    two(`Paid by ${methodLabel}`, `R${total.toFixed(2)}`)
+    if(order.method==="cash" && parseFloat(order.change_given||0)>0) {
+      two("Cash given", `R${parseFloat(order.cash_given||total).toFixed(2)}`)
+      two("Change", `R${parseFloat(order.change_given).toFixed(2)}`)
+    }
+    if(order.method==="split") {
+      if(parseFloat(order.split_card||0)>0) two("  Card", `R${parseFloat(order.split_card).toFixed(2)}`)
+      if(parseFloat(order.split_cash||0)>0) two("  Cash", `R${parseFloat(order.split_cash).toFixed(2)}`)
+    }
+    sep(".")
   }
-  if(order.method==="split") {
-    if(parseFloat(order.split_card||0)>0) two("  Card", `R${parseFloat(order.split_card).toFixed(2)}`)
-    if(parseFloat(order.split_cash||0)>0) two("  Cash", `R${parseFloat(order.split_cash).toFixed(2)}`)
-  }
-  sep("=")
 
   // ── TIP / WRITE-IN LINES ──
   if(S.showTipLine || S.showTotalLine) {
     text("\n")
     if(S.showTipLine)   text(`Tip: ____________    Signature: __________\n\n`)
     if(S.showTotalLine) two("Total incl. tip:", "_____________")
-    sep("-")
+    sep(".")
   }
 
   // ── FOOTER ──
   add(ESC_ALIGN_CENTER)
-  if(S.footer1) { add(ESC_BOLD_ON); text(S.footer1+"\n"); add(ESC_BOLD_OFF) }
+  text("\n")
+  if(S.footer1) text(S.footer1+"\n")
   if(S.footer2) text(S.footer2+"\n")
+  text("\n")
+
+  // Date/time at bottom like in photo
+  if(S.showDate) {
+    text(`${order.date||""} ${String(order.time||"").slice(0,5)}\n`)
+  }
   text("\n\n\n")
 
   if(S.beepAfter) add(ESC_BEEP||[])

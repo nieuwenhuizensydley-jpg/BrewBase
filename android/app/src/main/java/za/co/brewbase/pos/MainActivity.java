@@ -8,6 +8,7 @@ import java.util.ArrayList;
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        
         // Register our custom Bluetooth plugin BEFORE super.onCreate
         registerPlugin(BluetoothPrinterPlugin.class);
         super.onCreate(savedInstanceState);
