@@ -1006,11 +1006,24 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
         display:"flex",flexDirection:"column",overflow:"hidden",
         borderRight:`1px solid rgba(255,255,255,.06)`,transition:"width 0.2s ease"
       }}>
-        {/* Header: store name + staff */}
-        <div style={{background:C.primary,padding:"16px 14px 14px"}}>
-          <div style={{fontSize:16,fontWeight:800,color:"#fff",marginBottom:1}}>{business?.name||"BrewBase"}</div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,.8)"}}>{staff?.name}</div>
-          <div style={{fontSize:11,color:"rgba(255,255,255,.6)",textTransform:"capitalize"}}>{staff?.role}</div>
+        {/* Header: store name + staff + collapse */}
+        <div style={{background:C.primary,padding:"16px 14px 14px",display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+          {!sidebarCollapsed&&(
+            <div>
+              <div style={{fontSize:16,fontWeight:800,color:"#fff",marginBottom:1}}>{business?.name||"BrewBase"}</div>
+              <div style={{fontSize:13,color:"rgba(255,255,255,.8)"}}>{staff?.name}</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,.6)",textTransform:"capitalize"}}>{staff?.role}</div>
+            </div>
+          )}
+          {sidebarCollapsed&&(
+            <div style={{width:34,height:34,borderRadius:"50%",background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff"}}>
+              {staff?.initials||staff?.name?.slice(0,2).toUpperCase()||"?"}
+            </div>
+          )}
+          <button onClick={()=>setSidebarCollapsed(c=>!c)}
+            style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:6,color:"#fff",cursor:"pointer",padding:"6px 8px",fontSize:13,lineHeight:1,flexShrink:0,marginTop:sidebarCollapsed?0:2}}>
+            {sidebarCollapsed?"→":"←"}
+          </button>
         </div>
 
         {/* Nav items - Loyverse style */}
@@ -1021,12 +1034,13 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
             const label = typeof item.label==="function"?item.label():item.label
             return(
               <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false) }}
-                style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
+                title={label}
+                style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:14,padding:sidebarCollapsed?"14px 0":"14px 16px",justifyContent:sidebarCollapsed?"center":"flex-start",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
                   background:isA?"rgba(255,255,255,.12)":"transparent",
                   color:isA?"#fff":"rgba(255,255,255,.7)",fontFamily:"Inter,sans-serif",transition:"all 0.1s"}}>
                 <span style={{fontSize:20,flexShrink:0}}>{item.icon}</span>
-                <span style={{fontSize:15,fontWeight:isA?700:400}}>{label}</span>
-                {isA&&<div style={{width:3,height:"100%",background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
+                {!sidebarCollapsed&&<span style={{fontSize:15,fontWeight:isA?700:400}}>{label}</span>}
+                {!sidebarCollapsed&&isA&&<div style={{width:3,height:"100%",background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
               </button>
             )
           })}
@@ -1038,12 +1052,13 @@ function AppShell({business, staff, onLogout, paymentSuccess=false}) {
             const label = typeof item.label==="function"?item.label():item.label
             return(
               <button key={item.id} onClick={()=>{ setActive(item.id); setMobileNavOpen(false) }}
-                style={{display:"flex",alignItems:"center",gap:14,padding:"13px 16px",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
+                title={label}
+                style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:14,padding:sidebarCollapsed?"13px 0":"13px 16px",justifyContent:sidebarCollapsed?"center":"flex-start",border:"none",borderBottom:"1px solid rgba(255,255,255,.06)",cursor:"pointer",textAlign:"left",width:"100%",
                   background:isA?"rgba(255,255,255,.12)":"transparent",
                   color:isA?"#fff":"rgba(255,255,255,.65)",fontFamily:"Inter,sans-serif",transition:"all 0.1s"}}>
                 <span style={{fontSize:18,flexShrink:0}}>{item.icon}</span>
-                <span style={{fontSize:14,fontWeight:isA?700:400}}>{label}</span>
-                {isA&&<div style={{width:3,background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
+                {!sidebarCollapsed&&<span style={{fontSize:14,fontWeight:isA?700:400}}>{label}</span>}
+                {!sidebarCollapsed&&isA&&<div style={{width:3,background:"#fff",borderRadius:2,marginLeft:"auto",alignSelf:"stretch"}}/>}
               </button>
             )
           })}
