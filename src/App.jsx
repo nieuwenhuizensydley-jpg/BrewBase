@@ -3082,9 +3082,31 @@ function InventoryModule() {
     await supabase.from("bb_inventory").delete().eq("id",id); await refresh()
   }
 
-  const adjustStock = async (item,delta) => {
-    const newStock = Math.max(0,parseFloat(item.stock||0)+delta)
-    await supabase.from("bb_inventory").update({stock:newStock}).eq("id",item.id); await refresh()
+  const [quickAdd, setQuickAdd] = useState(false)
+  const [quickAdds, setQuickAdds] = useState([]) // [{id, name, qty, cost}]
+
+  const startQuickAdd = () => {
+    setQuickAdds(items.map(i=>({id:i.id, name:i.name, unit:i.unit, currentStock:parseFloat(i.stock||0), qty:"", cost:""})))
+    setQuickAdd(true)
+  }
+
+  const saveQuickAdd = async () => {
+    setSaving(true)
+    const toUpdate = quickAdds.filter(i=>parseFloat(i.qty||0)>0)
+    for(const item of toUpdate) {
+      const addQty = parseFloat(item.qty)||0
+      const invItem = items.find(x=>x.id===item.id)
+      const newStock = parseFloat(invItem?.stock||0) + addQty
+      await supabase.from("bb_inventory").update({stock:newStock}).eq("id",item.id)
+      await supabase.from("bb_stock_movements").insert({
+        id:uid(), business_id:business.id, inventory_item_id:item.id,
+        type:"purchase", quantity:addQty,
+        notes:`Stock received — ${addQty} ${item.unit}${item.cost?` @ R${item.cost} each`:""}`,
+        created_at:new Date().toISOString()
+      })
+    }
+    await refresh(); setSaving(false); setQuickAdd(false)
+    alert(`✓ Stock updated for ${toUpdate.length} item${toUpdate.length!==1?"s":""}`)
   }
 
   const filtered = items.filter(i=>!search||i.name.toLowerCase().includes(search.toLowerCase()))
@@ -3092,13 +3114,51 @@ function InventoryModule() {
 
   return (
     <div style={{padding:24,display:"flex",flexDirection:"column",gap:20}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:C.black,fontFamily:"Playfair Display,serif"}}>Inventory</div>
           <div style={{fontSize:13,color:C.muted}}>{items.length} items · {lowStock.length} low stock</div>
         </div>
-        <Btn onClick={openNew}>+ Add Item</Btn>
+        <div style={{display:"flex",gap:8}}>
+          <Btn variant="secondary" onClick={startQuickAdd}>📦 Receive Stock</Btn>
+          <Btn onClick={openNew}>+ Add Item</Btn>
+        </div>
       </div>
+
+      {/* Quick Stock Receive Modal */}
+      {quickAdd&&(
+        <Modal title="📦 Receive Stock" subtitle="Enter quantities received for each item. Leave blank to skip." onClose={()=>setQuickAdd(false)} width={560}>
+          <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:"60vh",overflowY:"auto",marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 100px 100px",gap:8,padding:"8px 0",borderBottom:`2px solid ${C.border}`}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Item</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",textAlign:"center"}}>Qty received</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",textAlign:"center"}}>Cost/unit (R)</div>
+            </div>
+            {quickAdds.map((item,idx)=>(
+              <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 100px 100px",gap:8,alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:600,color:C.black}}>{item.name}</div>
+                  <div style={{fontSize:11,color:C.muted}}>Current: {item.currentStock} {item.unit}</div>
+                </div>
+                <input type="number" value={item.qty} placeholder="0"
+                  onChange={e=>setQuickAdds(prev=>prev.map((x,i)=>i===idx?{...x,qty:e.target.value}:x))}
+                  style={{background:parseFloat(item.qty||0)>0?C.primaryPale:C.faint,border:`1px solid ${parseFloat(item.qty||0)>0?C.primary:C.border}`,borderRadius:8,color:C.black,padding:"8px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none",textAlign:"center",width:"100%",boxSizing:"border-box"}}/>
+                <input type="number" value={item.cost} placeholder="0.00"
+                  onChange={e=>setQuickAdds(prev=>prev.map((x,i)=>i===idx?{...x,cost:e.target.value}:x))}
+                  style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:8,color:C.black,padding:"8px",fontSize:14,fontFamily:"Inter,sans-serif",outline:"none",textAlign:"center",width:"100%",boxSizing:"border-box"}}/>
+              </div>
+            ))}
+          </div>
+          <div style={{background:C.faint,borderRadius:10,padding:"10px 14px",fontSize:13,color:C.muted,marginBottom:14}}>
+            {quickAdds.filter(i=>parseFloat(i.qty||0)>0).length} items to receive · 
+            Total cost: R{quickAdds.reduce((s,i)=>s+(parseFloat(i.qty||0)*parseFloat(i.cost||0)),0).toFixed(2)}
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <Btn onClick={saveQuickAdd} disabled={saving||quickAdds.every(i=>!parseFloat(i.qty||0))} style={{flex:1}} size="lg">{saving?"Saving…":"✓ Receive Stock"}</Btn>
+            <Btn variant="secondary" onClick={()=>setQuickAdd(false)} style={{flex:1}} size="lg">Cancel</Btn>
+          </div>
+        </Modal>
+      )}
 
       <div style={{display:"flex",gap:6,borderBottom:`1px solid ${C.border}`}}>
         {[["items","📦 Stock Items"],["ingredients","🔗 Ingredient Links"],["movements","📊 Stock Movements"]].map(([id,label])=>(
